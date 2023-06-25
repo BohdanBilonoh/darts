@@ -200,7 +200,7 @@ series.plot()
   supporting among other things custom callbacks, GPUs/TPUs training and custom trainers.
 
 * **Filtering Models:** Darts offers three filtering models: `KalmanFilter`, `GaussianProcessFilter`,
-  and `MovingAverage`, which allow to filter time series, and in some cases obtain probabilistic
+  and `MovingAverageFilter`, which allow to filter time series, and in some cases obtain probabilistic
   inferences of the underlying states/values.
 
 * **Datasets** The `darts.datasets` submodule contains some popular time series datasets for rapid
@@ -213,13 +213,15 @@ on bringing more models and features.
 Model | Univariate | Multivariate | Probabilistic | Multiple series (global) | Past-observed covariates | Future-known covariates | Static covariates | Reference
 --- | --- | --- | --- | --- | --- | --- | --- | ---
 `ARIMA` | ✅ | | ✅ | | | ✅ | |
-`VARIMA` | ✅ | ✅ | | | | ✅ | |
+`VARIMA` | | ✅ | | | | ✅ | |
 `AutoARIMA` | ✅ | | | | | ✅ | |
 `StatsForecastAutoARIMA` (faster AutoARIMA) | ✅ | | ✅ | | | ✅ | | [Nixtla's statsforecast](https://github.com/Nixtla/statsforecast)
 `ExponentialSmoothing` | ✅ | | ✅ | | | | |
-`StatsForecastETS` | ✅ | | | | | ✅ | | [Nixtla's statsforecast](https://github.com/Nixtla/statsforecast)
+`StatsForecastETS` | ✅ | | ✅ | | | ✅ | | [Nixtla's statsforecast](https://github.com/Nixtla/statsforecast)
+`StatsForecastAutoCES` | ✅ | | | | | | | [Nixtla's statsforecast](https://github.com/Nixtla/statsforecast)
 `BATS` and `TBATS` | ✅ | | ✅ | | | | | [TBATS paper](https://robjhyndman.com/papers/ComplexSeasonality.pdf)
 `Theta` and `FourTheta` | ✅ | | | | | | | [Theta](https://robjhyndman.com/papers/Theta.pdf) & [4 Theta](https://github.com/Mcompetitions/M4-methods/blob/master/4Theta%20method.R)
+`StatsForecastAutoTheta` | ✅ | | ✅ | | | | | [Nixtla's statsforecast](https://github.com/Nixtla/statsforecast)
 `Prophet` (see [install notes](https://github.com/unit8co/darts/blob/master/INSTALL.md#enabling-support-for-facebook-prophet)) | ✅ | | ✅ | | | ✅ | | [Prophet repo](https://github.com/facebook/prophet)
 `FFT` (Fast Fourier Transform) | ✅ | | | | | | |
 `KalmanForecaster` using the Kalman filter and N4SID for system identification | ✅ | ✅ | ✅ | | | ✅ | | [N4SID paper](https://people.duke.edu/~hpgavin/SystemID/References/VanOverschee-Automatica-1994.pdf)

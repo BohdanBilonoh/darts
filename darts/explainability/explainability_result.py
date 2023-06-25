@@ -6,12 +6,12 @@ Contains the explainability results obtained from :func:`ForecastingModelExplain
 """
 
 from abc import ABC
-from typing import Dict, Optional, Sequence, Union
+from typing import Any, Dict, Optional, Sequence, Union
 
-from numpy import integer
+import shap
 
 from darts import TimeSeries
-from darts.logging import get_logger, raise_if, raise_if_not
+from darts.logging import get_logger, raise_if, raise_if_not, raise_log
 
 logger = get_logger(__name__)
 
@@ -71,7 +71,7 @@ class ExplainabilityResult(ABC):
     def get_explanation(
         self,
         horizon: Optional[int] = None,
-        component: Optional[str] = None
+        component: Optional[str] = None,
     ) -> Union[TimeSeries, Sequence[TimeSeries]]:
         """
         Returns one or several `TimeSeries` representing the explanations
@@ -91,7 +91,11 @@ class ExplainabilityResult(ABC):
 
     def _query_explainability_result(
         self,
-        attr: Union[Dict[int, Dict[str, Any]], Sequence[Dict[int, Dict[str, Any]]]],
+        attr: Union[
+            Dict[int, Dict[str, Any]],
+            Sequence[Dict[int, Dict[str, Any]]],
+            Dict[str, TimeSeries],
+        ],
         horizon: Optional[int] = None,
         component: Optional[str] = None,
     ) -> Any:
@@ -114,13 +118,28 @@ class ExplainabilityResult(ABC):
             component = self.available_components[0]
         if isinstance(attr, list):
             return [attr[i][horizon][component] for i in range(len(attr))]
+        elif isinstance(attr, dict):
+            if all(isinstance(key, int) for key in attr.keys()):
+                return attr[horizon][component]
+            elif all(isinstance(key, str) for key in attr.keys()):
+                return attr[component]
+            else:
+                raise_log(
+                    ValueError(
+                        "The explained_forecasts dictionary must have all integer or all string keys."
+                    ),
+                    logger,
+                )
         else:
-            return attr[horizon][component]
+            raise_log(
+                ValueError(
+                    "The explained_forecasts must be a dictionary or a list of dictionaries."
+                ),
+                logger,
+            )
 
     def _validate_input_for_querying_explainability_result(
-        self,
-        horizon: Optional[int] = None,
-        component: Optional[str] = None
+        self, horizon: Optional[int] = None, component: Optional[str] = None
     ) -> None:
         """
         Helper that validates the input parameters of a method that queries the ExplainabilityResult.
@@ -133,6 +152,7 @@ class ExplainabilityResult(ABC):
             The component for which to return the explanation. Does not
             need to be specified for univariate series.
         """
+
         raise_if(
             component is None and len(self.available_components) > 1,
             "The component parameter is required when the model has more than one component.",

@@ -22,7 +22,7 @@ For an examples on how to use the TFT explainer, please have a look at the TFT n
 
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional, Sequence, Union
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -35,16 +35,14 @@ from darts.explainability.explainability import (
 )
 from darts.models import TFTModel
 
-try:
-    from typing import Literal
-except ImportError:
-    from typing_extensions import Literal
-
 
 class TFTExplainer(ForecastingModelExplainer):
     def __init__(
         self,
         model: TFTModel,
+        series: Optional[Union[TimeSeries, Sequence[TimeSeries]]] = None,
+        past_covariates: Optional[Union[TimeSeries, Sequence[TimeSeries]]] = None,
+        future_covariates: Optional[Union[TimeSeries, Sequence[TimeSeries]]] = None,
     ):
         """
         Explainer class for the TFT model.
@@ -54,7 +52,16 @@ class TFTExplainer(ForecastingModelExplainer):
         model
             The fitted TFT model to be explained.
         """
-        super().__init__(model)
+        super().__init__(
+            model,
+            series,
+            past_covariates,
+            future_covariates,
+        )
+
+        self._series = series
+        self._past_covariates = past_covariates
+        self._future_covariates = future_covariates
 
         if not model._fit_called:
             raise ValueError("The model needs to be trained before explaining it.")
@@ -258,15 +265,14 @@ class TFTExplainer(ForecastingModelExplainer):
         """
         past_covariates_name_mapping = {
             f"past_covariate_{i}": colname
-            for i, colname in enumerate(self._model.past_covariate_series.components)
+            for i, colname in enumerate(self._past_covariates.components)
         }
         future_covariates_name_mapping = {
             f"future_covariate_{i}": colname
-            for i, colname in enumerate(self._model.future_covariate_series.components)
+            for i, colname in enumerate(self._future_covariates.components)
         }
         target_name_mapping = {
-            f"target_{i}": colname
-            for i, colname in enumerate(self._model.training_series.components)
+            f"target_{i}": colname for i, colname in enumerate(self._series.components)
         }
 
         return {
@@ -293,5 +299,6 @@ class TFTExplainer(ForecastingModelExplainer):
         plt.bar(importance.columns.tolist(), importance.values[0].tolist(), figure=fig)
         plt.title(title)
         plt.xlabel("Variable", fontsize=12)
+        plt.xticks(rotation=90)
         plt.ylabel("Variable importance in %")
         plt.show()

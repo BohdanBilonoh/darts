@@ -22,198 +22,308 @@ For an examples on how to use the TFT explainer, please have a look at the TFT n
 
 """
 
-from typing import Dict, List, Literal, Optional, Sequence, Union
+from typing import Dict, List, Optional, Sequence, Union
 
-import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
-from torch import Tensor
 
 from darts import TimeSeries
 from darts.explainability.explainability import (
     ExplainabilityResult,
     ForecastingModelExplainer,
 )
-from darts.models import TFTModel
+from darts.models import TFTModel, TFTOutputsWithInterpretations
+from darts.logging import get_logger, raise_if, raise_log
+from darts.utils.utils import series2seq
+
+logger = get_logger(__name__)
 
 
 class TFTExplainer(ForecastingModelExplainer):
+
     def __init__(
         self,
         model: TFTModel,
-        series: Optional[Union[TimeSeries, Sequence[TimeSeries]]] = None,
-        past_covariates: Optional[Union[TimeSeries, Sequence[TimeSeries]]] = None,
-        future_covariates: Optional[Union[TimeSeries, Sequence[TimeSeries]]] = None,
+        background_series: Optional[Union[TimeSeries, Sequence[TimeSeries]]] = None,
+        background_past_covariates: Optional[
+            Union[TimeSeries, Sequence[TimeSeries]]
+        ] = None,
+        background_future_covariates: Optional[
+            Union[TimeSeries, Sequence[TimeSeries]]
+        ] = None,
     ):
         """
-        Explainer class for the TFT model.
+        The base class for forecasting model explainers. It defines the *minimal* behavior that all
+        forecasting model explainers support.
+
+        Naming:
+
+        - A background series is a `TimeSeries` with which to 'train' the `Explainer` model.
+        - A foreground series is the `TimeSeries` to explain using the fitted `Explainer` model.
 
         Parameters
         ----------
         model
-            The fitted TFT model to be explained.
+            A `ForecastingModel` to be explained. It must be fitted first.
+        background_series
+            A series or list of series to *train* the `ForecastingModelExplainer` along with any foreground series.
+            Consider using a reduced well-chosen background to reduce computation time.
+
+                - optional if `model` was fit on a single target series. By default, it is the `series` used
+                at fitting time.
+                - mandatory if `model` was fit on multiple (sequence of) target series.
+
+        background_past_covariates
+            A past covariates series or list of series that the model needs once fitted.
+        background_future_covariates
+            A future covariates series or list of series that the model needs once fitted.
         """
-        super().__init__(
-            model,
-            series,
-            past_covariates,
-            future_covariates,
-        )
-
-        self._series = series
-        self._past_covariates = past_covariates
-        self._future_covariates = future_covariates
-
         if not model._fit_called:
-            raise ValueError("The model needs to be trained before explaining it.")
+            raise_log(
+                ValueError(
+                    "The model must be fitted before instantiating a ForecastingModelExplainer."
+                ),
+                logger,
+            )
 
-        self._model = model
+        if model._is_probabilistic():
+            logger.warning(
+                "The model is probabilistic, but num_samples=1 will be used for explainability."
+            )
 
-    @property
-    def encoder_importance(self):
-        """Returns the encoder variable importance of the TFT model.
+        self.model = model
 
-        The encoder_weights are calculated for the past inputs of the model.
-        The encoder_importance contains the weights of the encoder variable selection network.
-        The encoder variable selection network is used to select the most important static and time dependent
-        covariates. It provides insights which variable are most significant for the prediction problem.
-        See section 4.2 of the paper for more details.
+        # if `background_series` was not passed, use `training_series` saved in fitted forecasting model.
+        if background_series is None:
 
-        Returns
-        -------
-        pd.DataFrame
-            The encoder variable importance.
-        """
-        return self._get_importance(
-            weight=self._model.model._encoder_sparse_weights,
-            names=self._model.model.encoder_variables,
+            raise_if(
+                (background_past_covariates is not None)
+                or (background_future_covariates is not None),
+                "Supplied background past or future covariates but no background series. Please provide "
+                "`background_series`.",
+            )
+
+            raise_if(
+                self.model.training_series is None,
+                "`background_series` must be provided if `model` was fit on multiple time series.",
+            )
+
+            background_series = self.model.training_series
+            background_past_covariates = self.model.past_covariate_series
+            background_future_covariates = self.model.future_covariate_series
+
+        else:
+            if self.model.encoders.encoding_available:
+                (
+                    background_past_covariates,
+                    background_future_covariates,
+                ) = self.model.generate_fit_encodings(
+                    series=background_series,
+                    past_covariates=background_past_covariates,
+                    future_covariates=background_future_covariates,
+                )
+
+        self.background_series = series2seq(background_series)
+        self.background_past_covariates = series2seq(background_past_covariates)
+        self.background_future_covariates = series2seq(background_future_covariates)
+
+        if self.model.supports_past_covariates:
+            raise_if(
+                self.model.uses_past_covariates
+                and self.background_past_covariates is None,
+                "A background past covariates is not provided, but the model needs past covariates.",
+            )
+
+        if self.model.supports_future_covariates:
+            raise_if(
+                self.model.uses_future_covariates
+                and self.background_future_covariates is None,
+                "A background future covariates is not provided, but the model needs future covariates.",
+            )
+
+        self.target_components = self.background_series[0].columns.to_list()
+        self.past_covariates_components = None
+        if self.background_past_covariates is not None:
+            self.past_covariates_components = self.background_past_covariates[
+                0
+            ].columns.to_list()
+        self.future_covariates_components = None
+        if self.background_future_covariates is not None:
+            self.future_covariates_components = self.background_future_covariates[
+                0
+            ].columns.to_list()
+
+        self._check_background_covariates(
+            self.background_series,
+            self.background_past_covariates,
+            self.background_future_covariates,
+            self.target_components,
+            self.past_covariates_components,
+            self.future_covariates_components,
         )
 
-    @property
-    def decoder_importance(self):
-        """Returns the decoder variable importance of the TFT model.
+        if not self._test_stationarity():
+            logger.warning(
+                "At least one time series component of the background time series is not stationary."
+                " Beware of wrong interpretation with chosen explainability."
+            )
 
-        The decoder_weights are calculated for the known future inputs of the model.
-        The decoder_importance contains the weights of the decoder variable selection network.
-        The decoder variable selection network is used to select the most important static and time dependent
-        covariates. It provides insights which variable are most significant for the prediction problem.
-        See section 4.2 of the paper for more details.
-
-        Returns
-        -------
-        pd.DataFrame
-            The importance of the decoder variables.
+    def explain(
+        self,
+        foreground_series: Optional[Union[TimeSeries, Sequence[TimeSeries]]] = None,
+        foreground_past_covariates: Optional[
+            Union[TimeSeries, Sequence[TimeSeries]]
+        ] = None,
+        foreground_future_covariates: Optional[
+            Union[TimeSeries, Sequence[TimeSeries]]
+        ] = None,
+        **kwargs
+    ) -> Dict[str, List[pd.DataFrame]]:
         """
-        return self._get_importance(
-            weight=self._model.model._decoder_sparse_weights,
-            names=self._model.model.decoder_variables,
-        )
+        Explains a foreground time series, returns an :class:`ExplainabilityResult`.
 
-    def get_variable_selection_weight(self, plot=False) -> Dict[str, pd.DataFrame]:
-        """Returns the variable selection weight of the TFT model.
+        Results can be retrieved via the method
+        :func:`ExplainabilityResult.get_explanation(horizon, target_component)`.
+        The result is a multivariate `TimeSeries` instance containing the 'explanation'
+        for the (horizon, target_component) forecast at any timestamp forecastable corresponding to
+        the foreground `TimeSeries` input.
+
+        The component name convention of this multivariate `TimeSeries` is:
+        ``"{name}_{type_of_cov}_lag_{idx}"``, where:
+
+        - ``{name}`` is the component name from the original foreground series (target, past, or future).
+        - ``{type_of_cov}`` is the covariates type. It can take 3 different values:
+          ``"target"``, ``"past_cov"`` or ``"future_cov"``.
+        - ``{idx}`` is the lag index.
+
+        **Example:**
+
+        Say we have a model with 2 target components named ``"T_0"`` and ``"T_1"``,
+        3 past covariates with default component names ``"0"``, ``"1"``, and ``"2"``,
+        and one future covariate with default component name ``"0"``.
+        Also, ``horizons = [1, 2]``.
+        The model is a regression model, with ``lags = 3``, ``lags_past_covariates=[-1, -3]``,
+        ``lags_future_covariates = [0]``.
+
+        We provide `foreground_series`, `foreground_past_covariates`, `foreground_future_covariates` each of length 5.
+
+
+        >>> explain_results = explainer.explain(
+        >>>     foreground_series=foreground_series,
+        >>>     foreground_past_covariates=foreground_past_covariates,
+        >>>     foreground_future_covariates=foreground_future_covariates
+        >>> )
+        >>> output = explain_results.get_explanation(horizon=1, target="T_1")
+
+        Then the method returns a multivariate TimeSeries containing the *explanations* of
+        the corresponding `ForecastingModelExplainer`, with the following component names:
+
+             - T_0_target_lag-1
+             - T_0_target_lag-2
+             - T_0_target_lag-3
+             - T_1_target_lag-1
+             - T_1_target_lag-2
+             - T_1_target_lag-3
+             - 0_past_cov_lag-1
+             - 0_past_cov_lag-3
+             - 1_past_cov_lag-1
+             - 1_past_cov_lag-3
+             - 2_past_cov_lag-1
+             - 2_past_cov_lag-3
+             - 0_fut_cov_lag_0
+
+        This series has length 3, as the model can explain 5-3+1 forecasts
+        (timestamp indexes 4, 5, and 6)
 
         Parameters
         ----------
-        plot
-            Whether to plot the variable selection weight.
+        foreground_series
+            Optionally, the target `TimeSeries` to be explained. Can be multivariate.
+            If not provided, the background `TimeSeries` will be explained instead.
+        foreground_past_covariates
+            Optionally, past covariate timeseries if needed by the ForecastingModel.
+        foreground_future_covariates
+            Optionally, future covariate timeseries if needed by the ForecastingModel.
 
-        Returns
-        -------
-        TimeSeries
-            The variable selection weight.
+         Returns
+         -------
+         ExplainabilityResult
+             The forecast explanations.
 
         """
 
-        if plot:
-            # plot the encoder and decoder weights
-            self._plot_cov_selection(
-                self.encoder_importance,
-                title="Encoder variable importance",
-            )
-            self._plot_cov_selection(
-                self.decoder_importance,
-                title="Decoder variable importance",
-            )
+        if "n" not in kwargs:
+            kwargs["n"] = self.model.output_chunk_length
+
+        if foreground_series is not None:
+            kwargs["series"] = foreground_series
+
+        if foreground_past_covariates is not None:
+            kwargs["past_covariates"] = foreground_past_covariates
+
+        if foreground_future_covariates is not None:
+            kwargs["future_covariates"] = foreground_future_covariates
+
+        outputs: TFTOutputsWithInterpretations = self.model.predict(**kwargs)
+
+        if isinstance(outputs.attention, list):
+            attention = [
+                attn[
+                    0, :, :self.model.input_chunk_length
+                ].sum(axis=0)
+                for attn in outputs.attention
+            ]
+        else:
+            attention = [
+                outputs.attention[
+                    0, :, :self.model.input_chunk_length
+                ].sum(axis=0)
+            ]
+
+        if isinstance(outputs.encoder_variables, list):
+            encoder_variables = [
+                encoder_variable.mean(axis=0)
+                for encoder_variable in outputs.encoder_variables
+            ]
+        else:
+            encoder_variables = [
+                outputs.encoder_variables.mean(axis=0)
+            ]
+
+        if isinstance(outputs.decoder_variables, list):
+            decoder_variables = [
+                decoder_variable.mean(axis=0)
+                for decoder_variable in outputs.decoder_variables
+            ]
+        else:
+            decoder_variables = [
+                outputs.decoder_variables.mean(axis=0)
+            ]
+
+        static_variables = outputs.static_variables
 
         return {
-            "encoder_importance": self.encoder_importance,
-            "decoder_importance": self.decoder_importance,
+            "attention": attention,
+            "encoder_variables": self._get_importance(
+                encoder_variables,
+                self.model.model.encoder_variables
+            ),
+            "decoder_variables": self._get_importance(
+                decoder_variables,
+                self.model.model.decoder_variables
+            ),
+            "static_variables": self._get_importance(
+                static_variables,
+                self.model.model.static_variables
+            ) if static_variables is not None else None
         }
-
-    def explain(self, **kwargs) -> ExplainabilityResult:
-        """Returns the explainability result of the TFT model.
-
-        The explainability result contains the attention heads of the TFT model.
-        The attention heads determine the contribution of time-varying inputs.
-
-        Parameters
-        ----------
-        kwargs
-            Arguments passed to the `predict` method of the TFT model.
-
-        Returns
-        -------
-        ExplainabilityResult
-            The explainability result containing the attention heads.
-
-        """
-        super().explain()
-        # without the predict call, the weights will still bet set to the last iteration of the forward() method
-        # of the _TFTModule class
-        if "n" not in kwargs:
-            kwargs["n"] = self._model.model.output_chunk_length
-
-        _ = self._model.predict(**kwargs)
-
-        # get the weights and the attention head from the trained model for the prediction
-        attention_heads = (
-            self._model.model._attn_out_weights.squeeze().sum(axis=1).detach()
-        )
-
-        # return the explainer result to be used in other methods
-        return ExplainabilityResult(
-            {
-                "attention_heads": TimeSeries.from_values(attention_heads.T),
-            }
-        )
-
-    @staticmethod
-    def plot_attention_heads(
-        expl_result: ExplainabilityResult,
-        plot_type: Optional[Literal["all", "time", "heatmap"]] = "time",
-    ):
-        """Plots the attention heads of the TFT model."""
-        attention_heads = expl_result.get_explanation(component="attention_heads")
-        if plot_type == "all":
-            fig = plt.figure()
-            attention_heads.plot(
-                label="Attention Head",
-                max_nr_components=-1,
-                figure=fig,
-            )
-            # move legend to the right side of the figure
-            plt.legend(bbox_to_anchor=(0.95, 1), loc="upper left")
-            plt.xlabel("Time steps in the past (# lags)")
-            plt.ylabel("Attention")
-        elif plot_type == "time":
-            fig = plt.figure()
-            attention_heads.mean(1).plot(label="Mean Attention Head", figure=fig)
-            plt.xlabel("Time steps in the past (# lags)")
-            plt.ylabel("Attention")
-        elif plot_type == "heatmap":
-            avg_attention = attention_heads.values().transpose()
-            fig = plt.figure()
-            plt.imshow(avg_attention, cmap="hot", interpolation="nearest", figure=fig)
-            plt.xlabel("Time steps in the past (# lags)")
-            plt.ylabel("Horizon")
-        else:
-            raise ValueError("`plot_type` must be either 'all', 'time' or 'heatmap'")
 
     def _get_importance(
         self,
-        weight: Tensor,
+        weights: List[np.ndarray],
         names: List[str],
-        n_decimals=3,
-    ) -> pd.DataFrame:
+        n_decimals: int = 3,
+    ) -> List[pd.DataFrame]:
         """Returns the encoder or decoder variable of the TFT model.
 
         Parameters
@@ -227,23 +337,23 @@ class TFTExplainer(ForecastingModelExplainer):
 
         Returns
         -------
-        pd.DataFrame
+        List of pd.DataFrame
             The importance of the variables.
         """
-        # transform the encoder/decoder weights to percentages, rounded to n_decimals
-        weights_percentage = (
-            weight.mean(axis=1).detach().numpy().mean(axis=0).round(n_decimals) * 100
-        )
 
         # create a dataframe with the variable names and the weights
         name_mapping = self._name_mapping
-        importance = pd.DataFrame(
-            weights_percentage,
-            columns=[name_mapping[name] for name in names],
-        )
 
-        # return the importance sorted descending
-        return importance.transpose().sort_values(0, ascending=False).transpose()
+        importances = []
+        for weights_ in weights:
+            weights_percentage = weights_.round(n_decimals) * 100
+            importance = pd.DataFrame(
+                weights_percentage,
+                columns=[name_mapping[name] for name in names],
+            )
+            importances.append(importance)
+
+        return importances
 
     @property
     def _name_mapping(self) -> Dict[str, str]:
@@ -263,42 +373,28 @@ class TFTExplainer(ForecastingModelExplainer):
              }
 
         """
-        past_covariates_name_mapping = {
-            f"past_covariate_{i}": colname
-            for i, colname in enumerate(self._past_covariates.components)
-        }
-        future_covariates_name_mapping = {
-            f"future_covariate_{i}": colname
-            for i, colname in enumerate(self._future_covariates.components)
-        }
-        target_name_mapping = {
-            f"target_{i}": colname for i, colname in enumerate(self._series.components)
-        }
+        mapping = {}
 
-        return {
-            **past_covariates_name_mapping,
-            **future_covariates_name_mapping,
-            **target_name_mapping,
-        }
-
-    @staticmethod
-    def _plot_cov_selection(
-        importance: pd.DataFrame, title: str = "Variable importance"
-    ):
-        """Plots the variable importance of the TFT model.
-
-        Parameters
-        ----------
-        importance
-            The encoder / decoder importance.
-        title
-            The title of the plot.
-
-        """
-        fig = plt.figure()
-        plt.bar(importance.columns.tolist(), importance.values[0].tolist(), figure=fig)
-        plt.title(title)
-        plt.xlabel("Variable", fontsize=12)
-        plt.xticks(rotation=90)
-        plt.ylabel("Variable importance in %")
-        plt.show()
+        if self.background_past_covariates:
+            _mapping = {
+                f"past_covariate_{i}": colname
+                for i, colname in enumerate(self.background_past_covariates[0].components)
+            }
+            mapping |= _mapping
+        if self.background_future_covariates:
+            _mapping = {
+                f"future_covariate_{i}": colname
+                for i, colname in enumerate(self.background_future_covariates[0].components)
+            }
+            mapping |= _mapping
+        if hasattr(self.model, "static_covariates") and self.model.static_covariates is not None:
+            _mapping = {
+                f"static_covariate_{i}": colname for i, colname in enumerate(self.model.static_covariates.columns)
+            }
+            mapping |= _mapping
+        if self.background_series:
+            _mapping = {
+                f"target_{i}": colname for i, colname in enumerate(self.background_series[0].components)
+            }
+            mapping |= _mapping
+        return mapping

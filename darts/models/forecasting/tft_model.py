@@ -3,6 +3,7 @@ Temporal Fusion Transformer (TFT)
 -------
 """
 
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -10,11 +11,16 @@ import pandas as pd
 import torch
 from torch import nn
 from torch.nn import LSTM as _LSTM
+from torch.utils.data import DataLoader
+from joblib import Parallel, delayed
+
+import pytorch_lightning as pl
 
 from darts import TimeSeries
 from darts.logging import get_logger, raise_if, raise_if_not, raise_log
 from darts.models.components import glu_variants, layer_norm_variants
 from darts.models.components.glu_variants import GLU_FFN
+from darts.models.forecasting.forecasting_model import ForecastingModel
 from darts.models.forecasting.pl_forecasting_module import PLMixedCovariatesModule
 from darts.models.forecasting.tft_submodels import (
     _GateAddNorm,
@@ -31,13 +37,27 @@ from darts.utils.data import (
     MixedCovariatesTrainingDataset,
     TrainingDataset,
 )
+from darts.utils.data.inference_dataset import InferenceDataset
+from darts.utils.timeseries_generation import _build_forecast_series
 from darts.utils.likelihood_models import Likelihood, QuantileRegression
+from darts.utils.torch import random_method
+from darts.utils.utils import series2seq
 
 logger = get_logger(__name__)
 
 MixedCovariatesTrainTensorType = Tuple[
     torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
 ]
+
+
+@dataclass
+class TFTOutputsWithInterpretations:
+    # TODO: add docstring
+    prediction: Union[torch.Tensor, TimeSeries, Sequence[TimeSeries]]
+    attention: Union[torch.Tensor, Sequence[torch.Tensor], np.ndarray, Sequence[np.ndarray]]
+    encoder_variables: Union[torch.Tensor, Sequence[torch.Tensor], np.ndarray, Sequence[np.ndarray]]
+    decoder_variables: Union[torch.Tensor, Sequence[torch.Tensor], np.ndarray, Sequence[np.ndarray]]
+    static_variables: Optional[Union[torch.Tensor, Sequence[torch.Tensor], np.ndarray, Sequence[np.ndarray]]] = None
 
 
 class _TFTModule(PLMixedCovariatesModule):
@@ -325,10 +345,6 @@ class _TFTModule(PLMixedCovariatesModule):
 
         self.output_layer = nn.Linear(self.hidden_size, self.n_targets * self.loss_size)
 
-        self._encoder_sparse_weights = None
-        self._decoder_sparse_weights = None
-        self._attn_out_weights = None
-
     @property
     def reals(self) -> List[str]:
         """
@@ -436,9 +452,330 @@ class _TFTModule(PLMixedCovariatesModule):
         )
         return mask
 
+    def _produce_train_output(
+        self, input_batch: Tuple
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Feeds MixedCovariatesTorchModel with input and output chunks of a MixedCovariatesSequentialDataset for
+        training.
+
+        Parameters:
+        ----------
+        input_batch
+            ``(past_target, past_covariates, historic_future_covariates, future_covariates, static_covariates)``.
+        """
+        return self(self._process_input_batch(input_batch)).prediction
+
+    def _produce_predict_output(
+        self, x: Tuple
+    ) -> Tuple:
+        out: TFTOutputsWithInterpretations = self(x)
+        if self.likelihood:
+            output = self.likelihood.sample(out.prediction)
+        else:
+            output = out.prediction.squeeze(dim=-1)
+        return (
+            output,
+            out.attention,
+            out.encoder_variables,
+            out.decoder_variables,
+            out.static_variables
+        )
+
+    def _get_batch_prediction(
+        self, n: int, input_batch: Tuple, roll_size: int
+    ) -> TFTOutputsWithInterpretations:
+        """
+        Feeds MixedCovariatesModel with input and output chunks of a MixedCovariatesSequentialDataset to forecast
+        the next ``n`` target values per target variable.
+
+        Parameters
+        ----------
+        n
+            prediction length
+        input_batch
+            (past_target, past_covariates, historic_future_covariates, future_covariates, future_past_covariates)
+        roll_size
+            roll input arrays after every sequence by ``roll_size``. Initially, ``roll_size`` is equivalent to
+            ``self.output_chunk_length``
+        """
+
+        dim_component = 2
+        (
+            past_target,
+            past_covariates,
+            historic_future_covariates,
+            future_covariates,
+            future_past_covariates,
+            static_covariates,
+        ) = input_batch
+
+        n_targets = past_target.shape[dim_component]
+        n_past_covs = (
+            past_covariates.shape[dim_component] if past_covariates is not None else 0
+        )
+        n_future_covs = (
+            future_covariates.shape[dim_component]
+            if future_covariates is not None
+            else 0
+        )
+
+        input_past, input_future, input_static = self._process_input_batch(
+            (
+                past_target,
+                past_covariates,
+                historic_future_covariates,
+                future_covariates[:, :roll_size, :]
+                if future_covariates is not None
+                else None,
+                static_covariates,
+            )
+        )
+
+        (
+            out,
+            attention,
+            encoder_variable,
+            decoder_variable,
+            static_variable
+        ) = self._produce_predict_output(x=(input_past, input_future, input_static))
+
+        batch_prediction = [
+            out[:, self.first_prediction_index:self.first_prediction_index + roll_size, :]
+        ]
+        attentions = [
+            attention[:, self.first_prediction_index:self.first_prediction_index + roll_size, :]
+        ]
+        encoder_variables = [encoder_variable]
+        decoder_variables = [decoder_variable]
+        static_variables = []
+        if static_variable is not None:
+            static_variables.append(static_variable)
+
+        prediction_length = roll_size
+
+        while prediction_length < n:
+            # we want the last prediction to end exactly at `n` into the future.
+            # this means we may have to truncate the previous prediction and step
+            # back the roll size for the last chunk
+            if prediction_length + self.output_chunk_length > n:
+                spillover_prediction_length = (
+                        prediction_length + self.output_chunk_length - n
+                )
+                roll_size -= spillover_prediction_length
+                prediction_length -= spillover_prediction_length
+                batch_prediction[-1] = batch_prediction[-1][:, :roll_size, :]
+
+            # ==========> PAST INPUT <==========
+            # roll over input series to contain the latest target and covariates
+            input_past = torch.roll(input_past, -roll_size, 1)
+
+            # update target input to include next `roll_size` predictions
+            if self.input_chunk_length >= roll_size:
+                input_past[:, -roll_size:, :n_targets] = out[:, :roll_size, :]
+            else:
+                input_past[:, :, :n_targets] = out[:, -self.input_chunk_length :, :]
+
+            # set left and right boundaries for extracting future elements
+            if self.input_chunk_length >= roll_size:
+                left_past, right_past = prediction_length - roll_size, prediction_length
+            else:
+                left_past, right_past = (
+                    prediction_length - self.input_chunk_length,
+                    prediction_length,
+                )
+
+            # update past covariates to include next `roll_size` future past covariates elements
+            if n_past_covs and self.input_chunk_length >= roll_size:
+                input_past[
+                    :, -roll_size:, n_targets: n_targets + n_past_covs
+                ] = future_past_covariates[:, left_past:right_past, :]
+            elif n_past_covs:
+                input_past[
+                    :, :, n_targets: n_targets + n_past_covs
+                ] = future_past_covariates[:, left_past:right_past, :]
+
+            # update historic future covariates to include next `roll_size` future covariates elements
+            if n_future_covs and self.input_chunk_length >= roll_size:
+                input_past[
+                :, -roll_size:, n_targets + n_past_covs :
+                ] = future_covariates[:, left_past:right_past, :]
+            elif n_future_covs:
+                input_past[:, :, n_targets + n_past_covs :] = future_covariates[
+                    :, left_past:right_past, :
+                ]
+
+            # ==========> FUTURE INPUT <==========
+            left_future, right_future = (
+                right_past,
+                right_past + self.output_chunk_length,
+            )
+            # update future covariates to include next `roll_size` future covariates elements
+            if n_future_covs:
+                input_future = future_covariates[:, left_future:right_future, :]
+
+            # take only last part of the output sequence where needed
+            (
+                out,
+                attention,
+                encoder_variable,
+                decoder_variable,
+                static_variable
+            ) = self._produce_predict_output(
+                x=(input_past, input_future, input_static)
+            )
+
+            batch_prediction.append(
+                out[:, self.first_prediction_index:, :]
+            )
+            attentions.append(
+                attention[:, self.first_prediction_index:, :]
+            )
+            encoder_variables.append(encoder_variable)
+            decoder_variables.append(decoder_variable)
+            if static_variables:
+                static_variables.append(static_variable)
+
+            prediction_length += self.output_chunk_length
+
+        # bring predictions into desired format and drop unnecessary values
+        batch_prediction = torch.cat(batch_prediction, dim=1)
+        batch_prediction = batch_prediction[:, :n, :]
+
+        attentions = torch.cat(attentions, dim=1)
+        # attentions = attentions[:, :n, :, :]
+
+        encoder_variables = torch.cat(encoder_variables, dim=1)
+
+        decoder_variables = torch.cat(decoder_variables, dim=1)
+        #decoder_variables = decoder_variables[:, :n, :]
+
+        if static_variables:
+            static_variables = torch.cat(static_variables, dim=1)
+        else:
+            static_variables = None
+
+        # print("N: ", n)
+        # print("Output shape: ", batch_prediction.shape)
+        # print("Attention shape: ", attentions.shape)
+        # print("Encoder shape: ", encoder_variables.shape)
+        # print("Decoder shape: ", decoder_variables.shape)
+        # print("Static shape: ", static_variables.shape if static_variables else "none")
+
+        return TFTOutputsWithInterpretations(
+            prediction=batch_prediction,
+            attention=attentions,
+            encoder_variables=encoder_variables,
+            decoder_variables=decoder_variables,
+            static_variables=static_variables
+        )
+
+    def predict_step(
+        self, batch: Tuple, batch_idx: int, dataloader_idx: Optional[int] = None
+    ) -> TFTOutputsWithInterpretations:
+        """performs the prediction step
+
+        batch
+            output of Darts' :class:`InferenceDataset` - tuple of ``(past_target, past_covariates,
+            historic_future_covariates, future_covariates, future_past_covariates, input_timeseries)``
+        batch_idx
+            the batch index of the current batch
+        dataloader_idx
+            the dataloader index
+        """
+        input_data_tuple, batch_input_series = batch[:-1], batch[-1]
+
+        # number of individual series to be predicted in current batch
+        num_series = input_data_tuple[0].shape[0]
+
+        # number of times the input tensor should be tiled to produce predictions for multiple samples
+        # this variable is larger than 1 only if the batch_size is at least twice as large as the number
+        # of individual time series being predicted in current batch (`num_series`)
+        batch_sample_size = min(
+            max(self.pred_batch_size // num_series, 1), self.pred_num_samples
+        )
+
+        # counts number of produced prediction samples for every series to be predicted in current batch
+        sample_count = 0
+
+        # repeat prediction procedure for every needed sample
+        batch_predictions = []
+        attentions, encoder_variables, decoder_variables, static_variables = [], [], [], []
+        while sample_count < self.pred_num_samples:
+
+            # make sure we don't produce too many samples
+            if sample_count + batch_sample_size > self.pred_num_samples:
+                batch_sample_size = self.pred_num_samples - sample_count
+
+            # stack multiple copies of the tensors to produce probabilistic forecasts
+            input_data_tuple_samples = self._sample_tiling(
+                input_data_tuple, batch_sample_size
+            )
+
+            # get predictions for 1 whole batch (can include predictions of multiple series
+            # and for multiple samples if a probabilistic forecast is produced)
+            outputs = self._get_batch_prediction(
+                self.pred_n, input_data_tuple_samples, self.pred_roll_size
+            )
+            batch_prediction = outputs.prediction
+
+            # reshape from 3d tensor (num_series x batch_sample_size, ...)
+            # into 4d tensor (batch_sample_size, num_series, ...), where dim 0 represents the samples
+            out_shape = batch_prediction.shape
+            batch_prediction = batch_prediction.reshape(
+                (
+                    batch_sample_size,
+                    num_series,
+                )
+                + out_shape[1:]
+            )
+
+            # save all predictions and update the `sample_count` variable
+            batch_predictions.append(batch_prediction)
+            attentions.append(outputs.attention)
+            encoder_variables.append(outputs.encoder_variables)
+            decoder_variables.append(outputs.decoder_variables)
+            if outputs.static_variables is not None:
+                static_variables.append(outputs.static_variables)
+            sample_count += batch_sample_size
+
+        # concatenate the batch of samples, to form self.pred_num_samples samples
+        batch_predictions = torch.cat(batch_predictions, dim=0)
+        batch_predictions = batch_predictions.cpu().detach().numpy()
+
+        attentions = torch.cat(attentions, dim=0)
+        attentions = attentions.cpu().detach().numpy()
+
+        encoder_variables = torch.cat(encoder_variables, dim=0)
+        encoder_variables = encoder_variables.cpu().detach().numpy()
+
+        decoder_variables = torch.cat(decoder_variables, dim=0)
+        decoder_variables = decoder_variables.cpu().detach().numpy()
+
+        if static_variables:
+            static_variables = torch.cat(static_variables, dim=0)
+            static_variables = static_variables.cpu().detach().numpy()
+        else:
+            static_variables = None
+
+        ts_forecasts = Parallel(n_jobs=self.pred_n_jobs)(
+            delayed(_build_forecast_series)(
+                [batch_prediction[batch_idx] for batch_prediction in batch_predictions],
+                input_series,
+            )
+            for batch_idx, input_series in enumerate(batch_input_series)
+        )
+        return TFTOutputsWithInterpretations(
+            prediction=ts_forecasts,
+            attention=attentions,
+            encoder_variables=encoder_variables,
+            decoder_variables=decoder_variables,
+            static_variables=static_variables
+        )
+
     def forward(
         self, x_in: Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]
-    ) -> torch.Tensor:
+    ) -> TFTOutputsWithInterpretations:
         """TFT model forward pass.
 
         Parameters
@@ -548,6 +885,7 @@ class _TFTModule(PLMixedCovariatesModule):
                 dtype=x_cont_past.dtype,
                 device=device,
             )
+            static_covariate_var = None
 
         static_context_expanded = self.expand_static_context(
             context=self.static_context_grn(static_embedding), time_steps=time_steps
@@ -637,22 +975,14 @@ class _TFTModule(PLMixedCovariatesModule):
         out = out.view(
             batch_size, self.output_chunk_length, self.n_targets, self.loss_size
         )
-        self._encoder_sparse_weights = encoder_sparse_weights
-        self._decoder_sparse_weights = decoder_sparse_weights
-        self._attn_out_weights = attn_out_weights
 
-        # TODO: (Darts) remember this in case we want to output interpretation
-        # return self.to_network_output(
-        #     prediction=self.transform_output(out, target_scale=x["target_scale"]),
-        #     attention=attn_out_weights,
-        #     static_variables=static_covariate_var,
-        #     encoder_variables=encoder_sparse_weights,
-        #     decoder_variables=decoder_sparse_weights,
-        #     decoder_lengths=decoder_lengths,
-        #     encoder_lengths=encoder_lengths,
-        # )
-
-        return out
+        return TFTOutputsWithInterpretations(
+            prediction=out,
+            attention=attn_out_weights,
+            encoder_variables=encoder_sparse_weights,
+            decoder_variables=decoder_sparse_weights,
+            static_variables=static_covariate_var
+        )
 
 
 class TFTModel(MixedCovariatesTorchModel):
@@ -1151,12 +1481,298 @@ class TFTModel(MixedCovariatesTorchModel):
     def supports_static_covariates(self) -> bool:
         return True
 
-    def predict(self, n, *args, **kwargs):
-        # since we have future covariates, the inference dataset for future input must be at least of length
-        # `output_chunk_length`. If not, we would have to step back which causes past input to be shorter than
-        # `input_chunk_length`.
+    @random_method
+    def predict(
+        self,
+        n: int,
+        series: Optional[Union[TimeSeries, Sequence[TimeSeries]]] = None,
+        past_covariates: Optional[Union[TimeSeries, Sequence[TimeSeries]]] = None,
+        future_covariates: Optional[Union[TimeSeries, Sequence[TimeSeries]]] = None,
+        trainer: Optional[pl.Trainer] = None,
+        batch_size: Optional[int] = None,
+        verbose: Optional[bool] = None,
+        n_jobs: int = 1,
+        roll_size: Optional[int] = None,
+        num_samples: int = 1,
+        num_loader_workers: int = 0,
+        mc_dropout: bool = False,
+    ) -> TFTOutputsWithInterpretations:
+        """Predict the ``n`` time step following the end of the training series, or of the specified ``series``.
 
-        if n >= self.output_chunk_length:
-            return super().predict(n, *args, **kwargs)
+        Prediction is performed with a PyTorch Lightning Trainer. It uses a default Trainer object from presets and
+        ``pl_trainer_kwargs`` used at model creation. You can also use a custom Trainer with optional parameter
+        ``trainer``. For more information on PyTorch Lightning Trainers check out `this link
+        <https://pytorch-lightning.readthedocs.io/en/stable/common/trainer.html>`_ .
+
+        Below, all possible parameters are documented, but not all models support all parameters. For instance,
+        all the :class:`PastCovariatesTorchModel` support only ``past_covariates`` and not ``future_covariates``.
+        Darts will complain if you try calling :func:`predict()` on a model with the wrong covariates argument.
+
+        Darts will also complain if the provided covariates do not have a sufficient time span.
+        In general, not all models require the same covariates' time spans:
+
+        * | Models relying on past covariates require the last ``input_chunk_length`` of the ``past_covariates``
+          | points to be known at prediction time. For horizon values ``n > output_chunk_length``, these models
+          | require at least the next ``n - output_chunk_length`` future values to be known as well.
+        * | Models relying on future covariates require the next ``n`` values to be known.
+          | In addition (for :class:`DualCovariatesTorchModel` and :class:`MixedCovariatesTorchModel`), they also
+          | require the "historic" values of these future covariates (over the past ``input_chunk_length``).
+
+        When handling covariates, Darts will try to use the time axes of the target and the covariates
+        to come up with the right time slices. So the covariates can be longer than needed; as long as the time axes
+        are correct Darts will handle them correctly. It will also complain if their time span is not sufficient.
+
+        Parameters
+        ----------
+        n
+            The number of time steps after the end of the training time series for which to produce predictions
+        series
+            Optionally, a series or sequence of series, representing the history of the target series whose
+            future is to be predicted. If specified, the method returns the forecasts of these
+            series. Otherwise, the method returns the forecast of the (single) training series.
+        past_covariates
+            Optionally, the past-observed covariates series needed as inputs for the model.
+            They must match the covariates used for training in terms of dimension.
+        future_covariates
+            Optionally, the future-known covariates series needed as inputs for the model.
+            They must match the covariates used for training in terms of dimension.
+        trainer
+            Optionally, a custom PyTorch-Lightning Trainer object to perform prediction. Using a custom ``trainer``
+            will override Darts' default trainer.
+        batch_size
+            Size of batches during prediction. Defaults to the models' training ``batch_size`` value.
+        verbose
+            Optionally, whether to print progress.
+        n_jobs
+            The number of jobs to run in parallel. ``-1`` means using all processors. Defaults to ``1``.
+        roll_size
+            For self-consuming predictions, i.e. ``n > output_chunk_length``, determines how many
+            outputs of the model are fed back into it at every iteration of feeding the predicted target
+            (and optionally future covariates) back into the model. If this parameter is not provided,
+            it will be set ``output_chunk_length`` by default.
+        num_samples
+            Number of times a prediction is sampled from a probabilistic model. Should be left set to 1
+            for deterministic models.
+        num_loader_workers
+            Optionally, an integer specifying the ``num_workers`` to use in PyTorch ``DataLoader`` instances,
+            for the inference/prediction dataset loaders (if any).
+            A larger number of workers can sometimes increase performance, but can also incur extra overheads
+            and increase memory usage, as more batches are loaded in parallel.
+        mc_dropout
+            Optionally, enable monte carlo dropout for predictions using neural network based models.
+            This allows bayesian approximation by specifying an implicit prior over learned models.
+
+        Returns
+        -------
+        TFTOutputsWithInterpretations
+            One or several time series containing the forecasts of ``series``, or the forecast of the training series
+            if ``series`` is not specified and the model has been trained on a single series.
+        """
+        N = max(n, self.output_chunk_length)
+
+        if series is None:
+            raise_if(
+                self.training_series is None,
+                "Input `series` must be provided. This is the result either from fitting on multiple series, "
+                "or from not having fit the model yet.",
+            )
+            series = self.training_series
+
+        called_with_single_series = True if isinstance(series, TimeSeries) else False
+
+        # guarantee that all inputs are either list of TimeSeries or None
+        series = series2seq(series)
+        past_covariates = series2seq(past_covariates)
+        future_covariates = series2seq(future_covariates)
+
+        self._verify_static_covariates(series[0].static_covariates)
+
+        # encoders are set when calling fit(), but not when calling fit_from_dataset()
+        # additionally, do not generate encodings when covariates were loaded as they already
+        # contain the encodings
+        if self.encoders is not None and self.encoders.encoding_available:
+            past_covariates, future_covariates = self.generate_predict_encodings(
+                n=N,
+                series=series,
+                past_covariates=past_covariates,
+                future_covariates=future_covariates,
+            )
+
+        if past_covariates is None and self.past_covariate_series is not None:
+            past_covariates = series2seq(self.past_covariate_series)
+        if future_covariates is None and self.future_covariate_series is not None:
+            future_covariates = series2seq(self.future_covariate_series)
+
+        super().predict(N, series, past_covariates, future_covariates)
+
+        dataset = self._build_inference_dataset(
+            target=series,
+            n=N,
+            past_covariates=past_covariates,
+            future_covariates=future_covariates,
+        )
+
+        outputs = self.predict_from_dataset(
+            N,
+            dataset,
+            trainer=trainer,
+            verbose=verbose,
+            batch_size=batch_size,
+            n_jobs=n_jobs,
+            roll_size=roll_size,
+            num_samples=num_samples,
+            num_loader_workers=num_loader_workers,
+            mc_dropout=mc_dropout,
+        )
+
+        if called_with_single_series:
+            outputs = TFTOutputsWithInterpretations(
+                prediction=outputs.prediction[0],
+                attention=outputs.attention[0],
+                encoder_variables=outputs.encoder_variables[0],
+                decoder_variables=outputs.decoder_variables[0],
+                static_variables=outputs.static_variables[0] if outputs.static_variables is not None else None
+            )
+
+        if n < N:
+            outputs.predictions = outputs.predictions[:n]
+        return outputs
+
+    @random_method
+    def predict_from_dataset(
+        self,
+        n: int,
+        input_series_dataset: InferenceDataset,
+        trainer: Optional[pl.Trainer] = None,
+        batch_size: Optional[int] = None,
+        verbose: Optional[bool] = None,
+        n_jobs: int = 1,
+        roll_size: Optional[int] = None,
+        num_samples: int = 1,
+        num_loader_workers: int = 0,
+        mc_dropout: bool = False,
+    ) -> TFTOutputsWithInterpretations:
+        """
+        This method allows for predicting with a specific :class:`darts.utils.data.InferenceDataset` instance.
+        These datasets implement a PyTorch ``Dataset``, and specify how the target and covariates are sliced
+        for inference. In most cases, you'll rather want to call :func:`predict()` instead, which will create an
+        appropriate :class:`InferenceDataset` for you.
+
+        Prediction is performed with a PyTorch Lightning Trainer. It uses a default Trainer object from presets and
+        ``pl_trainer_kwargs`` used at model creation. You can also use a custom Trainer with optional parameter
+        ``trainer``. For more information on PyTorch Lightning Trainers check out `this link
+        <https://pytorch-lightning.readthedocs.io/en/stable/common/trainer.html>`_ .
+
+        Parameters
+        ----------
+        n
+            The number of time steps after the end of the training time series for which to produce predictions
+        input_series_dataset
+            Optionally, a series or sequence of series, representing the history of the target series' whose
+            future is to be predicted. If specified, the method returns the forecasts of these
+            series. Otherwise, the method returns the forecast of the (single) training series.
+        trainer
+            Optionally, a custom PyTorch-Lightning Trainer object to perform prediction.  Using a custom ``trainer``
+            will override Darts' default trainer.
+        batch_size
+            Size of batches during prediction. Defaults to the models ``batch_size`` value.
+        verbose
+            Optionally, whether to print progress.
+        n_jobs
+            The number of jobs to run in parallel. ``-1`` means using all processors. Defaults to ``1``.
+        roll_size
+            For self-consuming predictions, i.e. ``n > output_chunk_length``, determines how many
+            outputs of the model are fed back into it at every iteration of feeding the predicted target
+            (and optionally future covariates) back into the model. If this parameter is not provided,
+            it will be set ``output_chunk_length`` by default.
+        num_samples
+            Number of times a prediction is sampled from a probabilistic model. Should be left set to 1
+            for deterministic models.
+        num_loader_workers
+            Optionally, an integer specifying the ``num_workers`` to use in PyTorch ``DataLoader`` instances,
+            for the inference/prediction dataset loaders (if any).
+            A larger number of workers can sometimes increase performance, but can also incur extra overheads
+            and increase memory usage, as more batches are loaded in parallel.
+        mc_dropout
+            Optionally, enable monte carlo dropout for predictions using neural network based models.
+            This allows bayesian approximation by specifying an implicit prior over learned models.
+
+        Returns
+        -------
+        Sequence[TimeSeries]
+            Returns one or more forecasts for time series.
+        """
+
+        # We need to call super's super's method directly, because GlobalForecastingModel expects series:
+        ForecastingModel.predict(self, n, num_samples)
+
+        self._verify_inference_dataset_type(input_series_dataset)
+
+        # check that covariates and dimensions are matching what we had during training
+        self._verify_predict_sample(input_series_dataset[0])
+
+        if roll_size is None:
+            roll_size = self.output_chunk_length
         else:
-            return super().predict(self.output_chunk_length, *args, **kwargs)[:n]
+            raise_if_not(
+                0 < roll_size <= self.output_chunk_length,
+                "`roll_size` must be an integer between 1 and `self.output_chunk_length`.",
+            )
+
+        # check that `num_samples` is a positive integer
+        raise_if_not(num_samples > 0, "`num_samples` must be a positive integer.")
+
+        # iterate through batches to produce predictions
+        batch_size = batch_size or self.batch_size
+
+        # set prediction parameters
+        self.model.set_predict_parameters(
+            n=n,
+            num_samples=num_samples,
+            roll_size=roll_size,
+            batch_size=batch_size,
+            n_jobs=n_jobs,
+        )
+
+        pred_loader = DataLoader(
+            input_series_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_loader_workers,
+            pin_memory=True,
+            drop_last=False,
+            collate_fn=self._batch_collate_fn,
+        )
+
+        # set mc_dropout rate
+        self.model.set_mc_dropout(mc_dropout)
+
+        # set up trainer. use user supplied trainer or create a new trainer from scratch
+        self.trainer = self._setup_trainer(
+            trainer=trainer, model=self.model, verbose=verbose, epochs=self.n_epochs
+        )
+
+        # prediction output comes as nested list: list of predicted `TimeSeries` for each batch.
+        outputs = self.trainer.predict(self.model, pred_loader)
+
+        # flatten and return
+        outputs = TFTOutputsWithInterpretations(
+            prediction=[ts for batch in outputs for ts in batch.prediction],
+            attention=[attention for batch in outputs for attention in batch.attention],
+            encoder_variables=[
+                encoder_variables
+                for batch in outputs
+                for encoder_variables in batch.encoder_variables
+            ],
+            decoder_variables=[
+                decoder_variables
+                for batch in outputs
+                for decoder_variables in batch.decoder_variables
+            ],
+            static_variables=None if outputs[0].static_variables is None else [
+                static_variables
+                for batch in outputs
+                for static_variables in batch.static_variables
+            ]
+        )
+        return outputs

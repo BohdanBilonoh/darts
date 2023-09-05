@@ -97,7 +97,12 @@ class Likelihood(ABC):
         # used for equality operator between likelihood objects
         self.ignore_attrs_equality = []
 
-    def compute_loss(self, model_output: torch.Tensor, target: torch.Tensor):
+    def compute_loss(
+        self,
+        model_output: torch.Tensor,
+        target: torch.Tensor,
+        target_weights: Optional[torch.Tensor] = None,
+    ):
         """
         Computes a loss from a `model_output`, which represents the parameters of a given probability
         distribution for every ground truth value in `target`, and the `target` itself.
@@ -125,6 +130,9 @@ class Likelihood(ABC):
             loss += self.prior_strength * torch.mean(
                 kl_divergence(prior_distr, out_distr)
             )
+
+        if target_weights:
+            loss = loss * target_weights
 
         return loss
 
@@ -1285,7 +1293,12 @@ class QuantileRegression(Likelihood):
     def num_parameters(self) -> int:
         return len(self.quantiles)
 
-    def compute_loss(self, model_output: torch.Tensor, target: torch.Tensor):
+    def compute_loss(
+        self,
+        model_output: torch.Tensor,
+        target: torch.Tensor,
+        target_weights: Optional[torch.Tensor] = None,
+    ):
         """
         We are re-defining a custom loss (which is not a likelihood loss) compared to Likelihood
 
@@ -1294,6 +1307,8 @@ class QuantileRegression(Likelihood):
         model_output
             must be of shape (batch_size, n_timesteps, n_target_variables, n_quantiles)
         target
+            must be of shape (n_samples, n_timesteps, n_target_variables)
+        target_weights
             must be of shape (n_samples, n_timesteps, n_target_variables)
         """
 
@@ -1322,7 +1337,12 @@ class QuantileRegression(Likelihood):
             (self.quantiles_tensor - 1) * errors, self.quantiles_tensor * errors
         )
 
-        return losses.sum(dim=dim_q).mean()
+        losses = losses.sum(dim=dim_q)
+
+        if target_weights is not None:
+            losses = losses * target_weights
+
+        return losses.mean()
 
     def _distr_from_params(self, params: Tuple) -> None:
         # This should not be called in this class (we are abusing Likelihood)

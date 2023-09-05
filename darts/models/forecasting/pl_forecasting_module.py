@@ -209,11 +209,14 @@ class PLForecastingModule(pl.LightningModule, ABC):
 
     def training_step(self, train_batch, batch_idx) -> torch.Tensor:
         """performs the training step"""
-        output = self._produce_train_output(train_batch[:-1])
+        output = self._produce_train_output(train_batch[:-2])
+        target_weights = train_batch[
+            -2
+        ]  # By convention target weights is always the second from the end element returned by datasets
         target = train_batch[
             -1
         ]  # By convention target is always the last element returned by datasets
-        loss = self._compute_loss(output, target)
+        loss = self._compute_loss(output, target, target_weights)
         self.log(
             "train_loss",
             loss,
@@ -226,9 +229,10 @@ class PLForecastingModule(pl.LightningModule, ABC):
 
     def validation_step(self, val_batch, batch_idx) -> torch.Tensor:
         """performs the validation step"""
-        output = self._produce_train_output(val_batch[:-1])
+        output = self._produce_train_output(val_batch[:-2])
+        target_weights = val_batch[-2]
         target = val_batch[-1]
-        loss = self._compute_loss(output, target)
+        loss = self._compute_loss(output, target, target_weights)
         self.log(
             "val_loss",
             loss,
@@ -343,10 +347,10 @@ class PLForecastingModule(pl.LightningModule, ABC):
         self.pred_n_jobs = n_jobs
         self.predict_likelihood_parameters = predict_likelihood_parameters
 
-    def _compute_loss(self, output, target):
+    def _compute_loss(self, output, target, target_weights):
         # output is of shape (batch_size, n_timesteps, n_components, n_params)
         if self.likelihood:
-            return self.likelihood.compute_loss(output, target)
+            return self.likelihood.compute_loss(output, target, target_weights)
         else:
             # If there's no likelihood, nr_params=1, and we need to squeeze out the
             # last dimension of model output, for properly computing the loss.

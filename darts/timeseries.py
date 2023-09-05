@@ -72,6 +72,7 @@ VALID_INDEX_TYPES = (pd.DatetimeIndex, pd.RangeIndex)
 STATIC_COV_TAG = "static_covariates"
 DEFAULT_GLOBAL_STATIC_COV_NAME = "global_components"
 HIERARCHY_TAG = "hierarchy"
+SAMPLE_WEIGHTS_TAG = "sample_weights"
 
 
 class TimeSeries:
@@ -461,6 +462,12 @@ class TimeSeries:
                 attrs=xa_.attrs,
             )
 
+        # if "sample_weights" in xa.coords:
+        #     xa_["sample_weights"] = (
+        #         xa["sample_weights"].dims,
+        #         xa["sample_weights"].values,
+        #     )
+
         # We cast the array to float
         if np.issubdtype(xa_.values.dtype, np.float32) or np.issubdtype(
             xa_.values.dtype, np.float64
@@ -571,6 +578,7 @@ class TimeSeries:
         df: pd.DataFrame,
         time_col: Optional[str] = None,
         value_cols: Optional[Union[List[str], str]] = None,
+        weight_cols: Optional[Union[List[str], str]] = None,
         fill_missing_dates: Optional[bool] = False,
         freq: Optional[Union[str, int]] = None,
         fillna_value: Optional[float] = None,
@@ -597,6 +605,10 @@ class TimeSeries:
         value_cols
             A string or list of strings representing the value column(s) to be extracted from the DataFrame. If set to
             `None`, the whole DataFrame will be used.
+        weight_cols
+            A string or list of strings representing the weight of value column(s) to be extracted from the DataFrame.
+            If set to `None`, not weight will be applied. Weights should be scaled in [0, 1] range
+            for each value column.
         fill_missing_dates
             Optionally, a boolean value indicating whether to fill missing dates (or indices in case of integer index)
             with NaN values. This requires either a provided `freq` or the possibility to infer the frequency from the
@@ -731,11 +743,21 @@ class TimeSeries:
         if series_df.columns.name:
             series_df.columns.name = None
 
+        sample_weights = None
+        if weight_cols:
+            sample_weights = df[
+                weight_cols if isinstance(weight_cols, list) else [weight_cols]
+            ].values.astype(np.float32)
+
         xa = xr.DataArray(
             series_df.values[:, :, np.newaxis],
             dims=(time_index.name,) + DIMS[-2:],
             coords={time_index.name: time_index, DIMS[1]: series_df.columns},
-            attrs={STATIC_COV_TAG: static_covariates, HIERARCHY_TAG: hierarchy},
+            attrs={
+                STATIC_COV_TAG: static_covariates,
+                HIERARCHY_TAG: hierarchy,
+                SAMPLE_WEIGHTS_TAG: sample_weights,
+            },
         )
 
         return cls.from_xarray(
@@ -752,6 +774,7 @@ class TimeSeries:
         group_cols: Union[List[str], str],
         time_col: Optional[str] = None,
         value_cols: Optional[Union[List[str], str]] = None,
+        weight_cols: Optional[Union[List[str], str]] = None,
         static_cols: Optional[Union[List[str], str]] = None,
         fill_missing_dates: Optional[bool] = False,
         freq: Optional[Union[str, int]] = None,
@@ -786,6 +809,10 @@ class TimeSeries:
         value_cols
             A string or list of strings representing the value column(s) to be extracted from the DataFrame. If set to
             `None`, the whole DataFrame will be used.
+        weight_cols
+            A string or list of strings representing the weight of value column(s) to be extracted from the DataFrame.
+            If set to `None`, not weight will be applied. Weights should be scaled in [0, 1] range
+            for each value column.
         static_cols
             A string or list of strings representing static variable columns from the DataFrame that should be
             appended as static covariates to the resulting TimeSeries groups. Different to `group_cols`, the
@@ -922,6 +949,7 @@ class TimeSeries:
         return [
             cls.from_dataframe(
                 df=split,
+                weight_cols=weight_cols,
                 fill_missing_dates=fill_missing_dates,
                 freq=freq,
                 fillna_value=fillna_value,
@@ -979,6 +1007,7 @@ class TimeSeries:
             df,
             time_col=None,
             value_cols=None,
+            weight_cols=None,
             fill_missing_dates=fill_missing_dates,
             freq=freq,
             fillna_value=fillna_value,
@@ -1278,6 +1307,22 @@ class TimeSeries:
     Properties
     ==========
     """
+
+    @property
+    def sample_weights(self) -> Optional[np.ndarray]:
+        """
+        Returns the static covariates contained in the series as a pandas DataFrame.
+        The columns represent the static variables and the rows represent the components of the uni/multivariate
+        series.
+        """
+        # if not self.has_sample_weights:
+        #     return None
+        return self._xa.attrs.get(SAMPLE_WEIGHTS_TAG, None)
+
+    @property
+    def has_sample_weights(self) -> bool:
+        """Whether this series is hierarchical or not."""
+        return self.sample_weights is not None
 
     @property
     def static_covariates(self) -> Optional[pd.DataFrame]:

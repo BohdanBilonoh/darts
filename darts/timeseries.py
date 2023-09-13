@@ -748,6 +748,14 @@ class TimeSeries:
             sample_weights = df[
                 weight_cols if isinstance(weight_cols, list) else [weight_cols]
             ].values.astype(np.float32)
+        else:
+            # TODO: remove when saple weight will be finished
+            sample_weights = np.ones(
+                (
+                    len(series_df),
+                    1 if series_df.shape[-1] - 1 == 0 else series_df.shape[-1] - 1,
+                )
+            ).astype(np.float32)
 
         xa = xr.DataArray(
             series_df.values[:, :, np.newaxis],
@@ -3009,6 +3017,7 @@ class TimeSeries:
                 attrs={
                     STATIC_COV_TAG: covariates,
                     HIERARCHY_TAG: self.hierarchy,
+                    SAMPLE_WEIGHTS_TAG: self.sample_weights,
                 },
             )
         )
@@ -3051,6 +3060,7 @@ class TimeSeries:
                 attrs={
                     STATIC_COV_TAG: self.static_covariates,
                     HIERARCHY_TAG: hierarchy,
+                    SAMPLE_WEIGHTS_TAG: self.sample_weights,
                 },
             )
         )
@@ -5422,7 +5432,12 @@ def concatenate(
             concat_vals,
             dims=(time_dim_name,) + DIMS[-2:],
             coords={time_dim_name: series[0].time_index, DIMS[1]: component_index},
-            attrs={STATIC_COV_TAG: static_covariates, HIERARCHY_TAG: hierarchy},
+            attrs={
+                STATIC_COV_TAG: static_covariates,
+                HIERARCHY_TAG: hierarchy,
+                # TODO: add concat sample weights
+                # SAMPLE_WEIGHTS_TAG: sample_weights,
+            },
         )
 
     return TimeSeries.from_xarray(da_concat, fill_missing_dates=False)

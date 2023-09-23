@@ -40,7 +40,7 @@ import sys
 from collections import defaultdict
 from copy import deepcopy
 from inspect import signature
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, Hashable, List, Optional, Sequence, Tuple, Union
 
 import matplotlib.axes
 import matplotlib.pyplot as plt
@@ -51,6 +51,7 @@ from pandas.tseries.frequencies import to_offset
 from scipy.stats import kurtosis, skew
 
 from .logging import get_logger, raise_if, raise_if_not, raise_log
+from .utils.parallel import _build_tqdm_iterator, _parallel_apply
 
 try:
     from typing import Literal
@@ -758,6 +759,56 @@ class TimeSeries:
         )
 
     @classmethod
+    def _from_group_dataframe(
+        cls,
+        static_cov_vals: Hashable,
+        group: pd.DataFrame,
+        static_cov_cols: List[str],
+        time_col: Optional[str] = None,
+        value_cols: Optional[Union[List[str], str]] = None,
+        weight_cols: Optional[Union[List[str], str]] = None,
+        static_cols: Optional[Union[List[str], str]] = None,
+        fill_missing_dates: Optional[bool] = False,
+        freq: Optional[Union[str, int]] = None,
+        fillna_value: Optional[float] = None,
+    ) -> Self:
+        static_cov_vals = (
+            (static_cov_vals,)
+            if not isinstance(static_cov_vals, tuple)
+            else static_cov_vals
+        )
+        # check that for each group there is only one unique value per column in `static_cols`
+        if static_cols:
+            static_cols_valid = [len(group[col].unique()) == 1 for col in static_cols]
+            if not all(static_cols_valid):
+                # encountered performance issues when evaluating the error message from below in every
+                # iteration with `raise_if_not(all(static_cols_valid), message, logger)`
+                invalid_cols = [
+                    static_col
+                    for static_col, is_valid in zip(static_cols, static_cols_valid)
+                    if not is_valid
+                ]
+                raise_if(
+                    True,
+                    f"Encountered more than one unique value in group {group} for given static columns: "
+                    f"{invalid_cols}.",
+                    logger,
+                )
+            # add the static covariates to the group values
+            static_cov_vals += tuple(group[static_cols].values[0])
+
+        return TimeSeries.from_dataframe(
+            df=group.drop(columns=static_cov_cols),
+            time_col=time_col,
+            value_cols=value_cols,
+            weight_cols=weight_cols,
+            fill_missing_dates=fill_missing_dates,
+            freq=freq,
+            fillna_value=fillna_value,
+            static_covariates=pd.DataFrame([static_cov_vals], columns=static_cov_cols),
+        )
+
+    @classmethod
     def from_group_dataframe(
         cls,
         df: pd.DataFrame,
@@ -769,6 +820,8 @@ class TimeSeries:
         fill_missing_dates: Optional[bool] = False,
         freq: Optional[Union[str, int]] = None,
         fillna_value: Optional[float] = None,
+        n_jobs: int = 0,
+        verbose: bool = True,
     ) -> List["TimeSeries"]:
         """
         Build a list of TimeSeries instances grouped by a selection of columns from a DataFrame.
@@ -842,60 +895,28 @@ class TimeSeries:
             static_cols = []
         static_cov_cols = group_cols + static_cols
 
-        # split df by groups, and store group values and static values (static covariates)
-        # single elements group columns must be unpacked for same groupby() behavior across different pandas versions
-        splits = []
-        for static_cov_vals, group in df.groupby(
-            group_cols[0] if len(group_cols) == 1 else group_cols
-        ):
-            static_cov_vals = (
-                (static_cov_vals,)
-                if not isinstance(static_cov_vals, tuple)
-                else static_cov_vals
-            )
-            # check that for each group there is only one unique value per column in `static_cols`
-            if static_cols:
-                static_cols_valid = [
-                    len(group[col].unique()) == 1 for col in static_cols
-                ]
-                if not all(static_cols_valid):
-                    # encountered performance issues when evaluating the error message from below in every
-                    # iteration with `raise_if_not(all(static_cols_valid), message, logger)`
-                    invalid_cols = [
-                        static_col
-                        for static_col, is_valid in zip(static_cols, static_cols_valid)
-                        if not is_valid
-                    ]
-                    raise_if(
-                        True,
-                        f"Encountered more than one unique value in group {group} for given static columns: "
-                        f"{invalid_cols}.",
-                        logger,
-                    )
-                # add the static covariates to the group values
-                static_cov_vals += tuple(group[static_cols].values[0])
-            # store static covariate Series and group DataFrame (without static cov columns)
-            splits.append(
-                (
-                    pd.DataFrame([static_cov_vals], columns=static_cov_cols),
-                    group.drop(columns=static_cov_cols),
-                )
-            )
+        df_grouped = df.groupby(group_cols[0] if len(group_cols) == 1 else group_cols)
 
-        # create a list with multiple TimeSeries and add static covariates
-        return [
-            TimeSeries.from_dataframe(
-                df=split,
-                time_col=time_col,
-                value_cols=value_cols,
-                weight_cols=weight_cols,
-                fill_missing_dates=fill_missing_dates,
-                freq=freq,
-                fillna_value=fillna_value,
-                static_covariates=static_covs,
-            )
-            for static_covs, split in splits
-        ]
+        input_iterator = _build_tqdm_iterator(
+            df_grouped, verbose=verbose, desc="Create TimeSeries", total=len(df_grouped)
+        )
+
+        return _parallel_apply(
+            input_iterator,
+            fn=cls._from_group_dataframe,
+            n_jobs=n_jobs,
+            fn_args=dict(),
+            fn_kwargs={
+                "static_cov_cols": static_cov_cols,
+                "time_col": time_col,
+                "value_cols": value_cols,
+                "weight_cols": weight_cols,
+                "static_cols": static_cols,
+                "fill_missing_dates": fill_missing_dates,
+                "freq": freq,
+                "fillna_value": fillna_value,
+            },
+        )
 
     @classmethod
     def from_series(

@@ -731,14 +731,14 @@ class TimeSeries:
             sample_weights = df[
                 weight_cols if isinstance(weight_cols, list) else [weight_cols]
             ].values.astype(np.float32)
-        else:
-            # TODO: remove when saple weight will be finished
-            sample_weights = np.ones(
-                (
-                    len(series_df),
-                    1 if series_df.shape[-1] - 1 == 0 else series_df.shape[-1] - 1,
-                )
-            ).astype(np.float32)
+        # TODO: remove when saple weight will be finished
+        # else:
+        #     sample_weights = np.ones(
+        #         (
+        #             len(series_df),
+        #             1 if series_df.shape[-1] - 1 == 0 else series_df.shape[-1] - 1,
+        #         )
+        #     ).astype(np.float32)
 
         xa = xr.DataArray(
             series_df.values[:, :, np.newaxis],

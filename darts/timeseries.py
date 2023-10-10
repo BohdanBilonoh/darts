@@ -5093,14 +5093,14 @@ class TimeSeries:
         if isinstance(key, pd.DatetimeIndex):
             _check_dt()
             xa_ = self._xa.sel({self._time_dim: key})
-            positions = np.where(self._xa[self._time_dim].isin(key))[0]
+            indexes = np.where(self._xa[self._time_dim].isin(key))[0]
 
             xa_ = _xarray_with_attrs(
                 xa_=xa_,
                 static_covariates=xa_.attrs[STATIC_COV_TAG],
                 hierarchy=None,
                 sample_weights=(
-                    xa_.attrs[SAMPLE_WEIGHTS_TAG][positions]
+                    xa_.attrs[SAMPLE_WEIGHTS_TAG][indexes]
                     if self.has_sample_weights
                     else None
                 ),
@@ -5125,7 +5125,7 @@ class TimeSeries:
                 static_covariates=xa_.attrs[STATIC_COV_TAG],
                 hierarchy=None,
                 sample_weights=(
-                    xa_.attrs[SAMPLE_WEIGHTS_TAG][key]
+                    xa_.attrs[SAMPLE_WEIGHTS_TAG][list(key)]
                     if self.has_sample_weights
                     else None
                 ),

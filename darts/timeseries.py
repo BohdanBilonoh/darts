@@ -320,7 +320,12 @@ class TimeSeries:
             ]
 
         # store static covariates and hierarchy in attributes (potentially storing None)
-        self._xa = _xarray_with_attrs(self._xa, static_covariates, hierarchy)
+        self._xa = _xarray_with_attrs(
+            self._xa,
+            static_covariates,
+            hierarchy,
+            self._xa.attrs.get(SAMPLE_WEIGHTS_TAG, None),
+        )
 
     """
     Factory Methods
@@ -956,7 +961,11 @@ class TimeSeries:
             col for col in static_cov_cols if col not in drop_group_cols
         ]
         extract_time_col = [] if time_col is None else [time_col]
-        extract_weight_col = [] if weight_cols is None else weight_cols
+        extract_weight_col = (
+            []
+            if weight_cols is None
+            else ([weight_cols] if isinstance(weight_cols, str) else weight_cols)
+        )
 
         if value_cols is None:
             value_cols = df.columns.drop(static_cov_cols + extract_time_col).tolist()
@@ -5084,6 +5093,18 @@ class TimeSeries:
         if isinstance(key, pd.DatetimeIndex):
             _check_dt()
             xa_ = self._xa.sel({self._time_dim: key})
+            positions = np.where(self._xa[self._time_dim].isin(key))[0]
+
+            xa_ = _xarray_with_attrs(
+                xa_=xa_,
+                static_covariates=xa_.attrs[STATIC_COV_TAG],
+                hierarchy=None,
+                sample_weights=(
+                    xa_.attrs[SAMPLE_WEIGHTS_TAG][positions]
+                    if self.has_sample_weights
+                    else None
+                ),
+            )
 
             # indexing may discard the freq, so we restore it...
             # if the DateTimeIndex already has an associated freq, use it
@@ -5099,6 +5120,17 @@ class TimeSeries:
             # see: https://github.com/pydata/xarray/issues/6256
             xa_ = xa_.assign_coords({self.time_dim: key})
 
+            xa_ = _xarray_with_attrs(
+                xa_=xa_,
+                static_covariates=xa_.attrs[STATIC_COV_TAG],
+                hierarchy=None,
+                sample_weights=(
+                    xa_.attrs[SAMPLE_WEIGHTS_TAG][key]
+                    if self.has_sample_weights
+                    else None
+                ),
+            )
+
             return self.__class__(xa_)
 
         # handle slices:
@@ -5106,12 +5138,25 @@ class TimeSeries:
             if isinstance(key.start, str) or isinstance(key.stop, str):
                 xa_ = self._xa.sel({DIMS[1]: key})
                 # selecting components discards the hierarchy, if any
+
+                indexes = np.where(self._xa[DIMS[1]].isin(xa_[DIMS[1]]))[0]
+
                 xa_ = _xarray_with_attrs(
                     xa_,
                     xa_.attrs[STATIC_COV_TAG][key.start : key.stop]
                     if adapt_covs_on_component
                     else xa_.attrs[STATIC_COV_TAG],
-                    None,
+                    xa_.attrs[HIERARCHY_TAG],
+                    sample_weights=(
+                        (
+                            xa_.attrs[SAMPLE_WEIGHTS_TAG][:, indexes]
+                            if len(xa_.attrs[SAMPLE_WEIGHTS_TAG][0])
+                            == len(self._xa[DIMS[1]])
+                            else xa_.attrs[SAMPLE_WEIGHTS_TAG]
+                        )
+                        if self.has_sample_weights
+                        else None
+                    ),
                 )
                 return self.__class__(xa_)
             elif isinstance(key.start, (int, np.int64)) or isinstance(
@@ -5122,6 +5167,18 @@ class TimeSeries:
                     # indexing discarded the freq; we restore it
                     freq = key.step * self.freq if key.step else self.freq
                     _set_freq_in_xa(xa_, freq)
+
+                xa_ = _xarray_with_attrs(
+                    xa_,
+                    xa_.attrs[STATIC_COV_TAG],
+                    xa_.attrs[HIERARCHY_TAG],
+                    sample_weights=(
+                        xa_.attrs[SAMPLE_WEIGHTS_TAG][key.start : key.stop]
+                        if self.has_sample_weights
+                        else None
+                    ),
+                )
+
                 return self.__class__(xa_)
             elif isinstance(key.start, pd.Timestamp) or isinstance(
                 key.stop, pd.Timestamp
@@ -5132,19 +5189,47 @@ class TimeSeries:
                     # indexing discarded the freq; we restore it
                     freq = key.step * self.freq if key.step else self.freq
                     _set_freq_in_xa(xa_, freq)
+
+                indexes = np.where(self._xa[self._time_dim].isin(xa_[self._time_dim]))[
+                    0
+                ]
+
+                xa_ = _xarray_with_attrs(
+                    xa_,
+                    xa_.attrs[STATIC_COV_TAG],
+                    xa_.attrs[HIERARCHY_TAG],
+                    sample_weights=(
+                        xa_.attrs[SAMPLE_WEIGHTS_TAG][indexes]
+                        if self.has_sample_weights
+                        else None
+                    ),
+                )
+
                 return self.__class__(xa_)
 
         # handle simple types:
         elif isinstance(key, str):
             # have to put key in a list not to drop the dimension
             xa_ = self._xa.sel({DIMS[1]: [key]})
+            index = np.where(self._xa[DIMS[1]] == key)[0]
+
             # selecting components discards the hierarchy, if any
             xa_ = _xarray_with_attrs(
                 xa_,
-                xa_.attrs[STATIC_COV_TAG].loc[[key]]
+                xa_.attrs[STATIC_COV_TAG]
                 if adapt_covs_on_component
                 else xa_.attrs[STATIC_COV_TAG],
-                None,
+                hierarchy=None,
+                sample_weights=(
+                    (
+                        xa_.attrs[SAMPLE_WEIGHTS_TAG][:, [index]]
+                        if len(xa_.attrs[SAMPLE_WEIGHTS_TAG][0])
+                        == len(self._xa[DIMS[1]])
+                        else xa_.attrs[SAMPLE_WEIGHTS_TAG]
+                    )
+                    if self.has_sample_weights
+                    else None
+                ),
             )
             return self.__class__(xa_)
         elif isinstance(key, (int, np.int64)):
@@ -5164,6 +5249,20 @@ class TimeSeries:
                         )
                     }
                 )
+
+            xa_ = _xarray_with_attrs(
+                xa_,
+                xa_.attrs[STATIC_COV_TAG]
+                if adapt_covs_on_component
+                else xa_.attrs[STATIC_COV_TAG],
+                hierarchy=None,
+                sample_weights=(
+                    xa_.attrs[SAMPLE_WEIGHTS_TAG][[key]]
+                    if self.has_sample_weights
+                    else None
+                ),
+            )
+
             # indexing may discard the freq, so we restore it...
             _set_freq_in_xa(xa_, freq=self.freq)
             return self.__class__(xa_)
@@ -5172,6 +5271,21 @@ class TimeSeries:
 
             # indexing may discard the freq, so we restore it...
             xa_ = self._xa.sel({self._time_dim: [key]})
+            index = np.where(self._xa[self._time_dim] == key)[0]
+
+            xa_ = _xarray_with_attrs(
+                xa_,
+                xa_.attrs[STATIC_COV_TAG]
+                if adapt_covs_on_component
+                else xa_.attrs[STATIC_COV_TAG],
+                hierarchy=None,
+                sample_weights=(
+                    xa_.attrs[SAMPLE_WEIGHTS_TAG][[index]]
+                    if self.has_sample_weights
+                    else None
+                ),
+            )
+
             _set_freq_in_xa(xa_, self.freq)
             return self.__class__(xa_)
 
@@ -5180,12 +5294,25 @@ class TimeSeries:
             if all(isinstance(s, str) for s in key):
                 # when string(s) are provided, we consider it as (a list of) component(s)
                 xa_ = self._xa.sel({DIMS[1]: key})
+
+                indexes = np.where(self._xa[DIMS[1]].isin(xa_[DIMS[1]]))[0]
+
                 xa_ = _xarray_with_attrs(
                     xa_,
-                    xa_.attrs[STATIC_COV_TAG].loc[key]
+                    xa_.attrs[STATIC_COV_TAG]
                     if adapt_covs_on_component
                     else xa_.attrs[STATIC_COV_TAG],
-                    None,
+                    hierarchy=None,
+                    sample_weights=(
+                        (
+                            xa_.attrs[SAMPLE_WEIGHTS_TAG][:, indexes]
+                            if len(xa_.attrs[SAMPLE_WEIGHTS_TAG][0])
+                            == len(self._xa[DIMS[1]])
+                            else xa_.attrs[SAMPLE_WEIGHTS_TAG]
+                        )
+                        if self.has_sample_weights
+                        else None
+                    ),
                 )
                 return self.__class__(xa_)
             elif all(isinstance(i, (int, np.int64)) for i in key):
@@ -5214,6 +5341,19 @@ class TimeSeries:
                     new_idx = orig_idx[min_idx : max_idx + 1]
                     xa_ = xa_.assign_coords({self._time_dim: new_idx})
 
+                xa_ = _xarray_with_attrs(
+                    xa_,
+                    xa_.attrs[STATIC_COV_TAG]
+                    if adapt_covs_on_component
+                    else xa_.attrs[STATIC_COV_TAG],
+                    hierarchy=None,
+                    sample_weights=(
+                        xa_.attrs[SAMPLE_WEIGHTS_TAG][key]
+                        if self.has_sample_weights
+                        else None
+                    ),
+                )
+
                 return self.__class__(xa_)
 
             elif all(isinstance(t, pd.Timestamp) for t in key):
@@ -5222,18 +5362,36 @@ class TimeSeries:
                 # indexing may discard the freq, so we restore it...
                 xa_ = self._xa.sel({self._time_dim: key})
                 _set_freq_in_xa(xa_)
+
+                indexes = np.where(self._xa[self._time_dim].isin(xa_[self._time_dim]))[
+                    0
+                ]
+                xa_ = _xarray_with_attrs(
+                    xa_,
+                    xa_.attrs[STATIC_COV_TAG]
+                    if adapt_covs_on_component
+                    else xa_.attrs[STATIC_COV_TAG],
+                    hierarchy=None,
+                    sample_weights=(
+                        xa_.attrs[SAMPLE_WEIGHTS_TAG][indexes]
+                        if self.has_sample_weights
+                        else None
+                    ),
+                )
+
                 return self.__class__(xa_)
 
         raise_log(IndexError("The type of your index was not matched."), logger)
 
 
-def _xarray_with_attrs(xa_, static_covariates, hierarchy):
+def _xarray_with_attrs(xa_, static_covariates, hierarchy, sample_weights):
     """Return an DataArray instance with static covariates and hierarchy stored in the array's attributes.
     Warning: This is an inplace operation (mutable) and should only be called from within TimeSeries construction
     or to restore static covariates and hierarchy after operations in which they did not get transferred.
     """
     xa_.attrs[STATIC_COV_TAG] = static_covariates
     xa_.attrs[HIERARCHY_TAG] = hierarchy
+    xa_.attrs[SAMPLE_WEIGHTS_TAG] = sample_weights
     return xa_
 
 

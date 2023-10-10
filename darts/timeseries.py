@@ -311,7 +311,12 @@ class TimeSeries:
             ]
 
         # Store static covariates and hierarchy in attributes (potentially storing None)
-        self._xa = _xarray_with_attrs(self._xa, static_covariates, hierarchy)
+        self._xa = _xarray_with_attrs(
+            self._xa,
+            static_covariates,
+            hierarchy,
+            self._xa.attrs.get(SAMPLE_WEIGHTS_TAG, None),
+        )
 
     """
     Factory Methods
@@ -4944,6 +4949,19 @@ class TimeSeries:
             _check_dt()
             xa_ = self._xa.sel({self._time_dim: key})
 
+            positions = np.where(self._xa[self._time_dim].isin(key))[0]
+
+            xa_ = _xarray_with_attrs(
+                xa_=xa_,
+                static_covariates=xa_.attrs[STATIC_COV_TAG],
+                hierarchy=None,
+                sample_weights=(
+                    xa_.attrs[SAMPLE_WEIGHTS_TAG][positions]
+                    if self.has_sample_weights
+                    else xa_.attrs[SAMPLE_WEIGHTS_TAG]
+                ),
+            )
+
             # indexing may discard the freq so we restore it...
             # TODO: unit-test this
             _set_freq_in_xa(xa_)
@@ -4957,6 +4975,21 @@ class TimeSeries:
             # see: https://github.com/pydata/xarray/issues/6256
             xa_ = xa_.assign_coords({self.time_dim: key})
 
+            positions = [
+                i for i, val in enumerate(self._xa[self._time_dim].values) if i in key
+            ]
+
+            xa_ = _xarray_with_attrs(
+                xa_=xa_,
+                static_covariates=xa_.attrs[STATIC_COV_TAG],
+                hierarchy=None,
+                sample_weights=(
+                    xa_.attrs[SAMPLE_WEIGHTS_TAG][positions]
+                    if self.has_sample_weights
+                    else xa_.attrs[SAMPLE_WEIGHTS_TAG]
+                ),
+            )
+
             return self.__class__(xa_)
 
         # handle slices:
@@ -4964,12 +4997,22 @@ class TimeSeries:
             if isinstance(key.start, str) or isinstance(key.stop, str):
                 xa_ = self._xa.sel({DIMS[1]: key})
                 # selecting components discards the hierarchy, if any
+
+                positions = [
+                    i for i, val in enumerate(self._xa[DIMS[1]].values) if i in key
+                ]
+
                 xa_ = _xarray_with_attrs(
                     xa_,
                     xa_.attrs[STATIC_COV_TAG][key.start : key.stop]
                     if adapt_covs_on_component
                     else xa_.attrs[STATIC_COV_TAG],
-                    None,
+                    xa_.attrs[HIERARCHY_TAG],
+                    sample_weights=(
+                        xa_.attrs[SAMPLE_WEIGHTS_TAG][:, positions]
+                        if self.has_sample_weights
+                        else xa_.attrs[SAMPLE_WEIGHTS_TAG]
+                    ),
                 )
                 return self.__class__(xa_)
             elif isinstance(key.start, (int, np.int64)) or isinstance(
@@ -4979,6 +5022,18 @@ class TimeSeries:
                 _set_freq_in_xa(
                     xa_
                 )  # indexing may discard the freq so we restore it...
+
+                xa_ = _xarray_with_attrs(
+                    xa_,
+                    xa_.attrs[STATIC_COV_TAG],
+                    xa_.attrs[HIERARCHY_TAG],
+                    sample_weights=(
+                        xa_.attrs[SAMPLE_WEIGHTS_TAG][key.start : key.stop]
+                        if self.has_sample_weights
+                        else xa_.attrs[SAMPLE_WEIGHTS_TAG]
+                    ),
+                )
+
                 return self.__class__(xa_)
             elif isinstance(key.start, pd.Timestamp) or isinstance(
                 key.stop, pd.Timestamp
@@ -5078,13 +5133,14 @@ class TimeSeries:
         raise_log(IndexError("The type of your index was not matched."), logger)
 
 
-def _xarray_with_attrs(xa_, static_covariates, hierarchy):
+def _xarray_with_attrs(xa_, static_covariates, hierarchy, sample_weights):
     """Return an DataArray instance with static covariates and hierarchy stored in the array's attributes.
     Warning: This is an inplace operation (mutable) and should only be called from within TimeSeries construction
     or to restore static covariates and hierarchy after operations in which they did not get transferred.
     """
     xa_.attrs[STATIC_COV_TAG] = static_covariates
     xa_.attrs[HIERARCHY_TAG] = hierarchy
+    xa_.attrs[SAMPLE_WEIGHTS_TAG] = sample_weights
     return xa_
 
 

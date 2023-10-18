@@ -902,6 +902,22 @@ class TimeSeries:
 
         df_grouped = df.groupby(group_cols[0] if len(group_cols) == 1 else group_cols)
 
+        if n_jobs == 0:
+            return [
+                cls._from_group_dataframe(
+                    group,
+                    static_cov_cols=static_cov_cols,
+                    time_col=time_col,
+                    value_cols=value_cols,
+                    weight_cols=weight_cols,
+                    static_cols=static_cols,
+                    fill_missing_dates=fill_missing_dates,
+                    freq=freq,
+                    fillna_value=fillna_value,
+                )
+                for group in df_grouped
+            ]
+
         input_iterator = _build_tqdm_iterator(
             df_grouped, verbose=verbose, desc="Create TimeSeries", total=len(df_grouped)
         )

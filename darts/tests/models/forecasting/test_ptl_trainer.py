@@ -8,7 +8,7 @@ from darts.utils.timeseries_generation import linear_timeseries
 logger = get_logger(__name__)
 
 try:
-    import pytorch_lightning as pl
+    import lightning as pl
 
     from darts.models.forecasting.rnn_model import RNNModel
 

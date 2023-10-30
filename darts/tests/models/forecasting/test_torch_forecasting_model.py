@@ -18,8 +18,8 @@ logger = get_logger(__name__)
 
 try:
     import torch
-    from pytorch_lightning.loggers.logger import DummyLogger
-    from pytorch_lightning.tuner.lr_finder import _LRFinder
+    from lightning.loggers.logger import DummyLogger
+    from lightning.tuner.lr_finder import _LRFinder
     from torchmetrics import (
         MeanAbsoluteError,
         MeanAbsolutePercentageError,

@@ -36,12 +36,12 @@ try:
 except ImportError:
     from typing_extensions import Literal
 
+import lightning as pl
 import numpy as np
 import pandas as pd
-import pytorch_lightning as pl
 import torch
-from pytorch_lightning import loggers as pl_loggers
-from pytorch_lightning.callbacks import ProgressBar
+from lightning.fabric.loggers import TensorBoardLogger
+from lightning.pytorch.callbacks import ProgressBar
 from torch import Tensor
 from torch.utils.data import DataLoader
 
@@ -346,7 +346,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
 
         # save tensorboard under 'darts_logs/model_name/logs/'
         model_logger = (
-            pl_loggers.TensorBoardLogger(save_dir=log_folder, name="", version="logs")
+            TensorBoardLogger(save_dir=log_folder, name="", version="logs")
             if log_tensorboard
             else False
         )

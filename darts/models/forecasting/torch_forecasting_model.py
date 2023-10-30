@@ -26,6 +26,7 @@ import os
 import re
 import shutil
 import sys
+import warnings
 from abc import ABC, abstractmethod
 from glob import glob
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
@@ -37,9 +38,7 @@ except ImportError:
 
 import numpy as np
 import pandas as pd
-import pytorch_lightning as pl
 import torch
-from pytorch_lightning import loggers as pl_loggers
 from torch import Tensor
 from torch.utils.data import DataLoader
 
@@ -91,14 +90,15 @@ from darts.utils.likelihood_models import Likelihood
 from darts.utils.torch import random_method
 from darts.utils.utils import get_single_series, seq2series, series2seq
 
-# Check whether we are running pytorch-lightning >= 2.0.0 or not:
-tokens = pl.__version__.split(".")
-pl_200_or_above = int(tokens[0]) >= 2
 
-if pl_200_or_above:
-    from pytorch_lightning.callbacks import ProgressBar
-    from pytorch_lightning.tuner import Tuner
-else:
+try:
+    import lightning as pl
+    from lightning.fabric.loggers import TensorBoardLogger
+    from lightning.pytorch.callbacks import ProgressBar
+except ImportError:
+    warnings.warn("failed to import lightning. maybe version is <2. trying to import pytorch_lightning", ImportWarning)
+    import pytorch_lightning as pl
+    from pytorch_lightning.loggers import TensorBoardLogger
     from pytorch_lightning.callbacks import ProgressBarBase as ProgressBar
     from pytorch_lightning.tuner.tuning import Tuner
 
@@ -352,7 +352,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
 
         # save tensorboard under 'darts_logs/model_name/logs/'
         model_logger = (
-            pl_loggers.TensorBoardLogger(save_dir=log_folder, name="", version="logs")
+            TensorBoardLogger(save_dir=log_folder, name="", version="logs")
             if log_tensorboard
             else False
         )

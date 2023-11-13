@@ -98,7 +98,7 @@ tokens = pl.__version__.split(".")
 pl_200_or_above = int(tokens[0]) >= 2
 
 if pl_200_or_above:
-    from pytorch_lightning.tuner import Tuner
+    from lightning.pytorch.tuner import Tuner
 else:
     from pytorch_lightning.tuner.tuning import Tuner
 

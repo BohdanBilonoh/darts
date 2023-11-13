@@ -905,7 +905,7 @@ class TimeSeries:
         if n_jobs == 0:
             return [
                 cls._from_group_dataframe(
-                    group,
+                    *group,
                     static_cov_cols=static_cov_cols,
                     time_col=time_col,
                     value_cols=value_cols,

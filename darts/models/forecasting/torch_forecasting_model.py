@@ -102,6 +102,10 @@ except ImportError:
     from pytorch_lightning.callbacks import ProgressBarBase as ProgressBar
     from pytorch_lightning.tuner.tuning import Tuner
 
+# Check whether we are running pytorch-lightning >= 2.0.0 or not:
+tokens = pl.__version__.split(".")
+pl_200_or_above = int(tokens[0]) >= 2
+
 
 DEFAULT_DARTS_FOLDER = "darts_logs"
 CHECKPOINTS_FOLDER = "checkpoints"

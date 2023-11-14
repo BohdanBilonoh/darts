@@ -158,6 +158,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         nr_epochs_val_period: int = 1,
         force_reset: bool = False,
         save_checkpoints: bool = False,
+        checkpoints_folder: Optional[str] = None,
         add_encoders: Optional[dict] = None,
         random_state: Optional[int] = None,
         pl_trainer_kwargs: Optional[dict] = None,
@@ -310,7 +311,10 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
 
         # setup model save dirs
         self.save_checkpoints = save_checkpoints
-        checkpoints_folder = _get_checkpoint_folder(self.work_dir, self.model_name)
+
+        if checkpoints_folder is None:
+            checkpoints_folder = _get_checkpoint_folder(self.work_dir, self.model_name)
+
         log_folder = _get_logs_folder(self.work_dir, self.model_name)
         checkpoint_exists = (
             os.path.exists(checkpoints_folder)

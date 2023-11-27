@@ -315,7 +315,7 @@ class TimeSeries:
             self._xa,
             static_covariates,
             hierarchy,
-            self._xa.attrs.get(SAMPLE_WEIGHTS_TAG, None),
+            self.sample_weights,
         )
 
     """
@@ -4723,7 +4723,10 @@ class TimeSeries:
     def __add__(self, other):
         if isinstance(other, (int, float, np.integer)):
             xa_ = _xarray_with_attrs(
-                self._xa + other, self.static_covariates, self.hierarchy
+                self._xa + other,
+                self.static_covariates,
+                self.hierarchy,
+                self.sample_weights,
             )
             return self.__class__(xa_)
         elif isinstance(other, (TimeSeries, xr.DataArray, np.ndarray)):
@@ -4744,7 +4747,10 @@ class TimeSeries:
     def __sub__(self, other):
         if isinstance(other, (int, float, np.integer)):
             xa_ = _xarray_with_attrs(
-                self._xa - other, self.static_covariates, self.hierarchy
+                self._xa - other,
+                self.static_covariates,
+                self.hierarchy,
+                self.sample_weights,
             )
             return self.__class__(xa_)
         elif isinstance(other, (TimeSeries, xr.DataArray, np.ndarray)):
@@ -4765,7 +4771,10 @@ class TimeSeries:
     def __mul__(self, other):
         if isinstance(other, (int, float, np.integer)):
             xa_ = _xarray_with_attrs(
-                self._xa * other, self.static_covariates, self.hierarchy
+                self._xa * other,
+                self.static_covariates,
+                self.hierarchy,
+                self.sample_weights,
             )
             return self.__class__(xa_)
         elif isinstance(other, (TimeSeries, xr.DataArray, np.ndarray)):
@@ -4787,7 +4796,10 @@ class TimeSeries:
         if isinstance(n, (int, float, np.integer)):
             raise_if(n < 0, "Attempted to raise a series to a negative power.", logger)
             xa_ = _xarray_with_attrs(
-                self._xa ** float(n), self.static_covariates, self.hierarchy
+                self._xa ** float(n),
+                self.static_covariates,
+                self.hierarchy,
+                self.sample_weights,
             )
             return self.__class__(xa_)
         if isinstance(n, (TimeSeries, xr.DataArray, np.ndarray)):
@@ -4807,7 +4819,10 @@ class TimeSeries:
             if other == 0:
                 raise_log(ZeroDivisionError("Cannot divide by 0."), logger)
             xa_ = _xarray_with_attrs(
-                self._xa / other, self.static_covariates, self.hierarchy
+                self._xa / other,
+                self.static_covariates,
+                self.hierarchy,
+                self.sample_weights,
             )
             return self.__class__(xa_)
         elif isinstance(other, (TimeSeries, xr.DataArray, np.ndarray)):
@@ -4845,13 +4860,17 @@ class TimeSeries:
     def __lt__(self, other) -> xr.DataArray:
         if isinstance(other, (int, float, np.integer, np.ndarray, xr.DataArray)):
             return _xarray_with_attrs(
-                self._xa < other, self.static_covariates, self.hierarchy
+                self._xa < other,
+                self.static_covariates,
+                self.hierarchy,
+                self.sample_weights,
             )
         elif isinstance(other, TimeSeries):
             return _xarray_with_attrs(
                 self._xa < other.data_array(copy=False),
                 self.static_covariates,
                 self.hierarchy,
+                self.sample_weights,
             )
         else:
             raise_log(
@@ -4866,13 +4885,17 @@ class TimeSeries:
     def __gt__(self, other) -> xr.DataArray:
         if isinstance(other, (int, float, np.integer, np.ndarray, xr.DataArray)):
             return _xarray_with_attrs(
-                self._xa > other, self.static_covariates, self.hierarchy
+                self._xa > other,
+                self.static_covariates,
+                self.hierarchy,
+                self.sample_weights,
             )
         elif isinstance(other, TimeSeries):
             return _xarray_with_attrs(
                 self._xa > other.data_array(copy=False),
                 self.static_covariates,
                 self.hierarchy,
+                self.sample_weights,
             )
         else:
             raise_log(
@@ -4887,13 +4910,17 @@ class TimeSeries:
     def __le__(self, other) -> xr.DataArray:
         if isinstance(other, (int, float, np.integer, np.ndarray, xr.DataArray)):
             return _xarray_with_attrs(
-                self._xa <= other, self.static_covariates, self.hierarchy
+                self._xa <= other,
+                self.static_covariates,
+                self.hierarchy,
+                self.sample_weights,
             )
         elif isinstance(other, TimeSeries):
             return _xarray_with_attrs(
                 self._xa <= other.data_array(copy=False),
                 self.static_covariates,
                 self.hierarchy,
+                self.sample_weights,
             )
         else:
             raise_log(
@@ -4908,13 +4935,17 @@ class TimeSeries:
     def __ge__(self, other) -> xr.DataArray:
         if isinstance(other, (int, float, np.integer, np.ndarray, xr.DataArray)):
             return _xarray_with_attrs(
-                self._xa >= other, self.static_covariates, self.hierarchy
+                self._xa >= other,
+                self.static_covariates,
+                self.hierarchy,
+                self.sample_weights,
             )
         elif isinstance(other, TimeSeries):
             return _xarray_with_attrs(
                 self._xa >= other.data_array(copy=False),
                 self.static_covariates,
                 self.hierarchy,
+                self.sample_weights,
             )
         else:
             raise_log(
@@ -5421,7 +5452,10 @@ def concatenate(
 
             da_concat = da_concat.assign_coords({time_dim_name: tindex})
             da_concat = _xarray_with_attrs(
-                da_concat, series[0].static_covariates, series[0].hierarchy
+                da_concat,
+                series[0].static_covariates,
+                series[0].hierarchy,
+                series[0].sample_weights,
             )
 
     else:

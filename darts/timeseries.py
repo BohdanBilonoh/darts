@@ -5079,7 +5079,10 @@ class TimeSeries:
                 xa_.attrs[STATIC_COV_TAG].loc[[key]]
                 if adapt_covs_on_component
                 else xa_.attrs[STATIC_COV_TAG],
-                None,
+                sample_weights=(
+                    xa_.attrs[SAMPLE_WEIGHTS_TAG] if self.has_sample_weights else None
+                ),
+                hierarchy=None,
             )
             return self.__class__(xa_)
         elif isinstance(key, (int, np.int64)):
@@ -5120,7 +5123,12 @@ class TimeSeries:
                     xa_.attrs[STATIC_COV_TAG].loc[key]
                     if adapt_covs_on_component
                     else xa_.attrs[STATIC_COV_TAG],
-                    None,
+                    sample_weights=(
+                        xa_.attrs[SAMPLE_WEIGHTS_TAG]
+                        if self.has_sample_weights
+                        else None
+                    ),
+                    hierarchy=None,
                 )
                 return self.__class__(xa_)
             elif all(isinstance(i, (int, np.int64)) for i in key):

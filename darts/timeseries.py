@@ -2495,26 +2495,41 @@ class TimeSeries:
         time_index = self.time_index.intersection(other.time_index)
         return self[time_index]
 
-    def strip(self) -> Self:
+    def strip(self, how: str = "all") -> Self:
         """
-        Return a ``TimeSeries`` slice of this deterministic time series, where NaN-only entries at the beginning
+        Return a ``TimeSeries`` slice of this deterministic time series, where NaN-containing entries at the beginning
         and the end of the series are removed. No entries after (and including) the first non-NaN entry and
         before (and including) the last non-NaN entry are removed.
 
         This method is only applicable to deterministic series (i.e., having 1 sample).
 
+        Parameters
+        ----------
+        how
+            Define if the entries containing `NaN` in all the components ('all') or in any of the components ('any')
+            should be stripped. Default: 'all'
+
         Returns
         -------
         TimeSeries
-            a new series based on the original where NaN-only entries at start and end have been removed
+            a new series based on the original where NaN-containing entries at start and end have been removed
         """
+        raise_if(
+            self.is_probabilistic,
+            "`strip` cannot be applied to stochastic TimeSeries",
+            logger,
+        )
 
-        df = self.pd_dataframe(copy=False)
-        new_start_idx = df.first_valid_index()
-        new_end_idx = df.last_valid_index()
-        new_series = df.loc[new_start_idx:new_end_idx]
-        return self.__class__.from_dataframe(
-            new_series, static_covariates=self.static_covariates
+        first_finite_row, last_finite_row = _finite_rows_boundaries(
+            self.values(), how=how
+        )
+
+        return self.__class__.from_times_and_values(
+            times=self.time_index[first_finite_row : last_finite_row + 1],
+            values=self.values()[first_finite_row : last_finite_row + 1],
+            columns=self.components,
+            static_covariates=self.static_covariates,
+            hierarchy=self.hierarchy,
         )
 
     def longest_contiguous_slice(
@@ -3088,7 +3103,11 @@ class TimeSeries:
         return self[index if isinstance(index, str) else self.components[index]]
 
     def add_datetime_attribute(
-        self, attribute, one_hot: bool = False, cyclic: bool = False
+        self,
+        attribute,
+        one_hot: bool = False,
+        cyclic: bool = False,
+        tz: Optional[str] = None,
     ) -> "TimeSeries":
         """
         Build a new series with one (or more) additional component(s) that contain an attribute
@@ -3109,6 +3128,8 @@ class TimeSeries:
             Boolean value indicating whether to add the specified attribute as a cyclic encoding.
             Alternative to one_hot encoding, enable only one of the two.
             (adds 2 columns, corresponding to sin and cos transformation).
+        tz
+            Optionally, a time zone to convert the time index to before computing the attributes.
 
         Returns
         -------
@@ -3120,12 +3141,20 @@ class TimeSeries:
 
         return self.stack(
             tg.datetime_attribute_timeseries(
-                self.time_index, attribute, one_hot, cyclic
+                self.time_index,
+                attribute=attribute,
+                one_hot=one_hot,
+                cyclic=cyclic,
+                tz=tz,
             )
         )
 
     def add_holidays(
-        self, country_code: str, prov: str = None, state: str = None
+        self,
+        country_code: str,
+        prov: str = None,
+        state: str = None,
+        tz: Optional[str] = None,
     ) -> "TimeSeries":
         """
         Adds a binary univariate component to the current series that equals 1 at every index that
@@ -3145,6 +3174,8 @@ class TimeSeries:
             The province
         state
             The state
+        tz
+            Optionally, a time zone to convert the time index to before computing the attributes.
 
         Returns
         -------
@@ -3155,7 +3186,13 @@ class TimeSeries:
         from .utils import timeseries_generation as tg
 
         return self.stack(
-            tg.holidays_timeseries(self.time_index, country_code, prov, state)
+            tg.holidays_timeseries(
+                self.time_index,
+                country_code=country_code,
+                prov=prov,
+                state=state,
+                tz=tz,
+            )
         )
 
     def resample(self, freq: str, method: str = "pad", **kwargs) -> Self:
@@ -5445,3 +5482,49 @@ def concatenate(
         )
 
     return TimeSeries.from_xarray(da_concat, fill_missing_dates=False)
+
+
+def _finite_rows_boundaries(
+    values: np.ndarray, how: str = "all"
+) -> Tuple[Optional[int], Optional[int]]:
+    """
+    Return the indices of the first rows containing finite values starting from the start and the end of the first
+    dimension of the ndarray.
+
+    Parameters
+    ----------
+    values
+        1D, 2D or 3D numpy array where the first dimension correspond to entries/rows, and the second to components/
+        columns
+    how
+        Define if the entries containing `NaN` in all the components ('all') or in any of the components ('any')
+        should be stripped. Default: 'all'
+    """
+    dims = values.shape
+
+    raise_if(
+        len(dims) > 3, f"Expected 1D to 3D array, received {len(dims)}D array", logger
+    )
+
+    finite_rows = ~np.isnan(values)
+
+    if len(dims) == 3:
+        finite_rows = finite_rows.all(axis=2)
+
+    if len(dims) > 1 and dims[1] > 1:
+        if how == "any":
+            finite_rows = finite_rows.all(axis=1)
+        elif how == "all":
+            finite_rows = finite_rows.any(axis=1)
+        else:
+            raise_log(
+                ValueError(
+                    f"`how` parameter value not recognized, should be either 'all' or 'any', "
+                    f"received {how}"
+                )
+            )
+
+    first_finite_row = finite_rows.argmax()
+    last_finite_row = len(finite_rows) - finite_rows[::-1].argmax() - 1
+
+    return first_finite_row, last_finite_row

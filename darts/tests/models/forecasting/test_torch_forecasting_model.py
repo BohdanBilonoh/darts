@@ -66,7 +66,7 @@ try:
 
     TORCH_AVAILABLE = True
 except ImportError:
-    logger.warning("Torch not available. RNN tests will be skipped.")
+    logger.warning("Torch not available. Tests will be skipped.")
     TORCH_AVAILABLE = False
 
 if TORCH_AVAILABLE:
@@ -1044,6 +1044,29 @@ if TORCH_AVAILABLE:
                 f"Retrained model has a greater mape error than the original model, "
                 f"respectively {retrained_mape} and {original_mape}"
             )
+
+        def test_load_weights_with_float32_dtype(self, tmpdir_fn):
+            ts_float32 = self.series.astype("float32")
+            model_name = "test_model"
+            ckpt_path = os.path.join(tmpdir_fn, f"{model_name}.pt")
+            # barebone model
+            model = DLinearModel(
+                input_chunk_length=4,
+                output_chunk_length=1,
+                n_epochs=1,
+            )
+            model.fit(ts_float32)
+            model.save(ckpt_path)
+            assert model.model._dtype == torch.float32  # type: ignore
+
+            # identical model
+            loading_model = DLinearModel(
+                input_chunk_length=4,
+                output_chunk_length=1,
+            )
+            loading_model.load_weights(ckpt_path)
+            loading_model.fit(ts_float32)
+            assert loading_model.model._dtype == torch.float32  # type: ignore
 
         def test_multi_steps_pipeline(self, tmpdir_fn):
             ts_training, ts_val = self.series.split_before(75)

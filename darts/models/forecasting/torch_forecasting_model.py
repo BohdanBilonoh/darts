@@ -1,6 +1,5 @@
 """
 TorchForecastingModel
----------------------
 
 This file contains several abstract classes:
 
@@ -107,6 +106,12 @@ DEFAULT_DARTS_FOLDER = "darts_logs"
 CHECKPOINTS_FOLDER = "checkpoints"
 RUNS_FOLDER = "runs"
 INIT_MODEL_NAME = "_model.pth.tar"
+
+TORCH_NP_DTYPES = {
+    torch.float16: np.float16,
+    torch.float32: np.float32,
+    torch.float64: np.float64,
+}
 
 # pickling a TorchForecastingModel will not save below attributes: the keys specify the
 # attributes to be ignored, and the values are the default values getting assigned upon loading
@@ -225,7 +230,8 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
                     'datetime_attribute': {'future': ['hour', 'dayofweek']},
                     'position': {'past': ['relative'], 'future': ['relative']},
                     'custom': {'past': [encode_year]},
-                    'transformer': Scaler()
+                    'transformer': Scaler(),
+                    'tz': 'CET'
                 }
             ..
         random_state
@@ -1230,6 +1236,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         num_loader_workers: int = 0,
         mc_dropout: bool = False,
         predict_likelihood_parameters: bool = False,
+        show_warnings: bool = True,
     ) -> Union[TimeSeries, Sequence[TimeSeries]]:
         """Predict the ``n`` time step following the end of the training series, or of the specified ``series``.
 
@@ -1349,6 +1356,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
             future_covariates,
             num_samples=num_samples,
             predict_likelihood_parameters=predict_likelihood_parameters,
+            show_warnings=show_warnings,
         )
 
         dataset = self._build_inference_dataset(
@@ -1876,8 +1884,9 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         )
 
         # pl_forecasting module saves the train_sample shape, must recreate one
+        np_dtype = TORCH_NP_DTYPES[ckpt["model_dtype"]]
         mock_train_sample = [
-            np.zeros(sample_shape) if sample_shape else None
+            np.zeros(sample_shape, dtype=np_dtype) if sample_shape else None
             for sample_shape in ckpt["train_sample_shape"]
         ]
         self.train_sample = tuple(mock_train_sample)
@@ -2042,6 +2051,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         verbose: bool = False,
         show_warnings: bool = True,
         predict_likelihood_parameters: bool = False,
+        **kwargs,
     ) -> Union[
         TimeSeries, List[TimeSeries], Sequence[TimeSeries], Sequence[List[TimeSeries]]
     ]:
@@ -2070,8 +2080,9 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
             overlap_end=overlap_end,
             last_points_only=last_points_only,
             show_warnings=show_warnings,
-            predict_likelihood_parameters=predict_likelihood_parameters,
             verbose=verbose,
+            predict_likelihood_parameters=predict_likelihood_parameters,
+            **kwargs,
         )
         return forecasts_list
 

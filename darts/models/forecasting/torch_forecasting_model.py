@@ -90,16 +90,19 @@ from darts.utils.likelihood_models import Likelihood
 from darts.utils.torch import random_method
 from darts.utils.utils import get_single_series, seq2series, series2seq
 
-
 try:
     import lightning as pl
     from lightning.fabric.loggers import TensorBoardLogger
-    from lightning.pytorch.callbacks import ProgressBar
+    from lightning.pytorch.callbacks import ModelCheckpoint, ProgressBar
 except ImportError:
-    warnings.warn("failed to import lightning. maybe version is <2. trying to import pytorch_lightning", ImportWarning)
+    warnings.warn(
+        "failed to import lightning. maybe version is <2. trying to import pytorch_lightning",
+        ImportWarning,
+    )
     import pytorch_lightning as pl
-    from pytorch_lightning.loggers import TensorBoardLogger
+    from pytorch_lightning.callbacks import ModelCheckpoint
     from pytorch_lightning.callbacks import ProgressBarBase as ProgressBar
+    from pytorch_lightning.loggers import TensorBoardLogger
     from pytorch_lightning.tuner.tuning import Tuner
 
 # Check whether we are running pytorch-lightning >= 2.0.0 or not:
@@ -348,7 +351,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
 
         # save best epoch on val_loss and last epoch under 'darts_logs/model_name/checkpoints/'
         if save_checkpoints:
-            checkpoint_callback = pl.callbacks.ModelCheckpoint(
+            checkpoint_callback = ModelCheckpoint(
                 dirpath=checkpoints_folder,
                 save_last=True,
                 monitor="val_loss",

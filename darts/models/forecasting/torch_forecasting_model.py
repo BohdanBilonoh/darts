@@ -40,7 +40,7 @@ import numpy as np
 import pandas as pd
 import torch
 from lightning.fabric.loggers import TensorBoardLogger
-from lightning.pytorch.callbacks import ProgressBar
+from lightning.pytorch.callbacks import ModelCheckpoint, ProgressBar
 from torch import Tensor
 from torch.utils.data import DataLoader
 
@@ -344,7 +344,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
 
         # save best epoch on val_loss and last epoch under 'darts_logs/model_name/checkpoints/'
         if save_checkpoints:
-            checkpoint_callback = pl.callbacks.ModelCheckpoint(
+            checkpoint_callback = ModelCheckpoint(
                 dirpath=checkpoints_folder,
                 save_last=True,
                 monitor="val_loss",

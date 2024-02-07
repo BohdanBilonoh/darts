@@ -16,7 +16,13 @@ from darts.models.forecasting.pl_forecasting_module import (
 from darts.models.forecasting.torch_forecasting_model import MixedCovariatesTorchModel
 
 MixedCovariatesTrainTensorType = Tuple[
-    torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
 ]
 
 
@@ -642,6 +648,7 @@ class TiDEModel(MixedCovariatesTorchModel):
             historic_future_covariates,
             future_covariates,
             static_covariates,
+            _,
             future_target,
         ) = train_sample
 

@@ -573,7 +573,8 @@ if TORCH_AVAILABLE:
             )
             assert len(ds) == 81
             self._assert_eq(
-                ds[5], (self.target1[75:85], None, self.cov_st1, self.target1[85:95])
+                ds[5],
+                (self.target1[75:85], None, self.cov_st1, None, self.target1[85:95]),
             )
 
             # two target series
@@ -584,11 +585,18 @@ if TORCH_AVAILABLE:
             )
             assert len(ds) == 262
             self._assert_eq(
-                ds[5], (self.target1[75:85], None, self.cov_st1, self.target1[85:95])
+                ds[5],
+                (self.target1[75:85], None, self.cov_st1, None, self.target1[85:95]),
             )
             self._assert_eq(
                 ds[136],
-                (self.target2[125:135], None, self.cov_st2, self.target2[135:145]),
+                (
+                    self.target2[125:135],
+                    None,
+                    self.cov_st2,
+                    None,
+                    self.target2[135:145],
+                ),
             )
 
             # two target series with custom max_nr_samples
@@ -600,11 +608,18 @@ if TORCH_AVAILABLE:
             )
             assert len(ds) == 100
             self._assert_eq(
-                ds[5], (self.target1[75:85], None, self.cov_st1, self.target1[85:95])
+                ds[5],
+                (self.target1[75:85], None, self.cov_st1, None, self.target1[85:95]),
             )
             self._assert_eq(
                 ds[55],
-                (self.target2[125:135], None, self.cov_st2, self.target2[135:145]),
+                (
+                    self.target2[125:135],
+                    None,
+                    self.cov_st2,
+                    None,
+                    self.target2[135:145],
+                ),
             )
 
             # two targets and one covariate
@@ -626,6 +641,7 @@ if TORCH_AVAILABLE:
                     self.target1[75:85],
                     self.cov1[75:85],
                     self.cov_st1,
+                    None,
                     self.target1[85:95],
                 ),
             )
@@ -635,6 +651,7 @@ if TORCH_AVAILABLE:
                     self.target2[125:135],
                     self.cov2[125:135],
                     self.cov_st2,
+                    None,
                     self.target2[135:145],
                 ),
             )
@@ -714,7 +731,8 @@ if TORCH_AVAILABLE:
             )
             assert len(ds) == 81
             self._assert_eq(
-                ds[5], (self.target1[75:85], None, self.cov_st1, self.target1[85:95])
+                ds[5],
+                (self.target1[75:85], None, self.cov_st1, None, self.target1[85:95]),
             )
 
             # two target series
@@ -725,11 +743,18 @@ if TORCH_AVAILABLE:
             )
             assert len(ds) == 262
             self._assert_eq(
-                ds[5], (self.target1[75:85], None, self.cov_st1, self.target1[85:95])
+                ds[5],
+                (self.target1[75:85], None, self.cov_st1, None, self.target1[85:95]),
             )
             self._assert_eq(
                 ds[136],
-                (self.target2[125:135], None, self.cov_st2, self.target2[135:145]),
+                (
+                    self.target2[125:135],
+                    None,
+                    self.cov_st2,
+                    None,
+                    self.target2[135:145],
+                ),
             )
 
             # two target series with custom max_nr_samples
@@ -741,11 +766,18 @@ if TORCH_AVAILABLE:
             )
             assert len(ds) == 100
             self._assert_eq(
-                ds[5], (self.target1[75:85], None, self.cov_st1, self.target1[85:95])
+                ds[5],
+                (self.target1[75:85], None, self.cov_st1, None, self.target1[85:95]),
             )
             self._assert_eq(
                 ds[55],
-                (self.target2[125:135], None, self.cov_st2, self.target2[135:145]),
+                (
+                    self.target2[125:135],
+                    None,
+                    self.cov_st2,
+                    None,
+                    self.target2[135:145],
+                ),
             )
 
             # two targets and one covariate
@@ -774,12 +806,12 @@ if TORCH_AVAILABLE:
             np.testing.assert_almost_equal(ds[0][0], target1.values()[-20:-10])
             np.testing.assert_almost_equal(ds[0][1], cov1.values()[-30:-20])
             np.testing.assert_almost_equal(ds[0][2], self.cov_st2)
-            np.testing.assert_almost_equal(ds[0][3], target1.values()[-10:])
+            np.testing.assert_almost_equal(ds[0][4], target1.values()[-10:])
 
             np.testing.assert_almost_equal(ds[101][0], target2.values()[-40:-30])
             np.testing.assert_almost_equal(ds[101][1], cov2.values()[-60:-50])
             np.testing.assert_almost_equal(ds[101][2], self.cov_st2)
-            np.testing.assert_almost_equal(ds[101][3], target2.values()[-30:-20])
+            np.testing.assert_almost_equal(ds[101][4], target2.values()[-30:-20])
 
             # Should also contain correct values when time-indexed with covariates not aligned
             times1 = pd.date_range(start="20090201", end="20090220", freq="D")
@@ -801,7 +833,7 @@ if TORCH_AVAILABLE:
             np.testing.assert_almost_equal(ds[0][0], target1.values()[-4:-2])
             np.testing.assert_almost_equal(ds[0][1], cov1.values()[-4:-2])
             np.testing.assert_almost_equal(ds[0][2], self.cov_st2)
-            np.testing.assert_almost_equal(ds[0][3], target1.values()[-2:])
+            np.testing.assert_almost_equal(ds[0][4], target1.values()[-2:])
 
             # Should fail if covariates are not long enough
             target1 = TimeSeries.from_values(np.random.randn(8)).with_static_covariates(
@@ -831,7 +863,14 @@ if TORCH_AVAILABLE:
             assert len(ds) == 81
             self._assert_eq(
                 ds[5],
-                (self.target1[75:85], None, None, self.cov_st1, self.target1[85:95]),
+                (
+                    self.target1[75:85],
+                    None,
+                    None,
+                    self.cov_st1,
+                    None,
+                    self.target1[85:95],
+                ),
             )
 
             # two target series
@@ -843,7 +882,14 @@ if TORCH_AVAILABLE:
             assert len(ds) == 262
             self._assert_eq(
                 ds[5],
-                (self.target1[75:85], None, None, self.cov_st1, self.target1[85:95]),
+                (
+                    self.target1[75:85],
+                    None,
+                    None,
+                    self.cov_st1,
+                    None,
+                    self.target1[85:95],
+                ),
             )
             self._assert_eq(
                 ds[136],
@@ -852,6 +898,7 @@ if TORCH_AVAILABLE:
                     None,
                     None,
                     self.cov_st2,
+                    None,
                     self.target2[135:145],
                 ),
             )
@@ -866,7 +913,14 @@ if TORCH_AVAILABLE:
             assert len(ds) == 100
             self._assert_eq(
                 ds[5],
-                (self.target1[75:85], None, None, self.cov_st1, self.target1[85:95]),
+                (
+                    self.target1[75:85],
+                    None,
+                    None,
+                    self.cov_st1,
+                    None,
+                    self.target1[85:95],
+                ),
             )
             self._assert_eq(
                 ds[55],
@@ -875,6 +929,7 @@ if TORCH_AVAILABLE:
                     None,
                     None,
                     self.cov_st2,
+                    None,
                     self.target2[135:145],
                 ),
             )
@@ -906,13 +961,13 @@ if TORCH_AVAILABLE:
             np.testing.assert_almost_equal(ds[0][1], cov1.values()[-40:-30])
             np.testing.assert_almost_equal(ds[0][2], cov1.values()[-30:-20])
             np.testing.assert_almost_equal(ds[0][3], self.cov_st2)
-            np.testing.assert_almost_equal(ds[0][4], target1.values()[-10:])
+            np.testing.assert_almost_equal(ds[0][5], target1.values()[-10:])
 
             np.testing.assert_almost_equal(ds[101][0], target2.values()[-40:-30])
             np.testing.assert_almost_equal(ds[101][1], cov2.values()[-70:-60])
             np.testing.assert_almost_equal(ds[101][2], cov2.values()[-60:-50])
             np.testing.assert_almost_equal(ds[101][3], self.cov_st2)
-            np.testing.assert_almost_equal(ds[101][4], target2.values()[-30:-20])
+            np.testing.assert_almost_equal(ds[101][5], target2.values()[-30:-20])
 
             # Should also contain correct values when time-indexed with covariates not aligned
             times1 = pd.date_range(start="20090201", end="20090220", freq="D")
@@ -935,7 +990,7 @@ if TORCH_AVAILABLE:
             np.testing.assert_almost_equal(ds[0][1], cov1.values()[-6:-4])
             np.testing.assert_almost_equal(ds[0][2], cov1.values()[-4:-2])
             np.testing.assert_almost_equal(ds[0][3], self.cov_st2)
-            np.testing.assert_almost_equal(ds[0][4], target1.values()[-2:])
+            np.testing.assert_almost_equal(ds[0][5], target1.values()[-2:])
 
             # Should fail if covariates are not long enough
             target1 = TimeSeries.from_values(np.random.randn(8)).with_static_covariates(
@@ -960,7 +1015,8 @@ if TORCH_AVAILABLE:
             )
             assert len(ds) == 86
             self._assert_eq(
-                ds[5], (self.target1[80:90], None, self.cov_st1, self.target1[85:95])
+                ds[5],
+                (self.target1[80:90], None, self.cov_st1, None, self.target1[85:95]),
             )
 
             # two target series
@@ -969,11 +1025,18 @@ if TORCH_AVAILABLE:
             )
             assert len(ds) == 272
             self._assert_eq(
-                ds[5], (self.target1[80:90], None, self.cov_st1, self.target1[85:95])
+                ds[5],
+                (self.target1[80:90], None, self.cov_st1, None, self.target1[85:95]),
             )
             self._assert_eq(
                 ds[141],
-                (self.target2[130:140], None, self.cov_st2, self.target2[135:145]),
+                (
+                    self.target2[130:140],
+                    None,
+                    self.cov_st2,
+                    None,
+                    self.target2[135:145],
+                ),
             )
 
             # two target series with custom max_nr_samples
@@ -985,11 +1048,18 @@ if TORCH_AVAILABLE:
             )
             assert len(ds) == 100
             self._assert_eq(
-                ds[5], (self.target1[80:90], None, self.cov_st1, self.target1[85:95])
+                ds[5],
+                (self.target1[80:90], None, self.cov_st1, None, self.target1[85:95]),
             )
             self._assert_eq(
                 ds[55],
-                (self.target2[130:140], None, self.cov_st2, self.target2[135:145]),
+                (
+                    self.target2[130:140],
+                    None,
+                    self.cov_st2,
+                    None,
+                    self.target2[135:145],
+                ),
             )
 
             # two targets and one covariate
@@ -1011,6 +1081,7 @@ if TORCH_AVAILABLE:
                     self.target1[80:90],
                     self.cov1[80:90],
                     self.cov_st1,
+                    None,
                     self.target1[85:95],
                 ),
             )
@@ -1020,6 +1091,7 @@ if TORCH_AVAILABLE:
                     self.target2[130:140],
                     self.cov2[130:140],
                     self.cov_st2,
+                    None,
                     self.target2[135:145],
                 ),
             )
@@ -1035,7 +1107,7 @@ if TORCH_AVAILABLE:
             np.testing.assert_almost_equal(ds[0][0], target1.values()[-5:-2])
             np.testing.assert_almost_equal(ds[0][1], cov1.values()[-7:-4])
             np.testing.assert_almost_equal(ds[0][2], self.cov_st2)
-            np.testing.assert_almost_equal(ds[0][3], target1.values()[-3:])
+            np.testing.assert_almost_equal(ds[0][4], target1.values()[-3:])
 
             # Should also contain correct values when time-indexed with covariates not aligned
             times1 = pd.date_range(start="20090201", end="20090220", freq="D")
@@ -1052,7 +1124,7 @@ if TORCH_AVAILABLE:
             np.testing.assert_almost_equal(ds[0][0], target1.values()[-5:-2])
             np.testing.assert_almost_equal(ds[0][1], cov1.values()[-7:-4])
             np.testing.assert_almost_equal(ds[0][2], self.cov_st2)
-            np.testing.assert_almost_equal(ds[0][3], target1.values()[-3:])
+            np.testing.assert_almost_equal(ds[0][4], target1.values()[-3:])
 
             # Should fail if covariates are too short
             target1 = TimeSeries.from_values(np.random.randn(8)).with_static_covariates(
@@ -1072,7 +1144,8 @@ if TORCH_AVAILABLE:
             )
             assert len(ds) == 86
             self._assert_eq(
-                ds[5], (self.target1[80:90], None, self.cov_st1, self.target1[85:95])
+                ds[5],
+                (self.target1[80:90], None, self.cov_st1, None, self.target1[85:95]),
             )
 
             # two target series
@@ -1081,11 +1154,18 @@ if TORCH_AVAILABLE:
             )
             assert len(ds) == 272
             self._assert_eq(
-                ds[5], (self.target1[80:90], None, self.cov_st1, self.target1[85:95])
+                ds[5],
+                (self.target1[80:90], None, self.cov_st1, None, self.target1[85:95]),
             )
             self._assert_eq(
                 ds[141],
-                (self.target2[130:140], None, self.cov_st2, self.target2[135:145]),
+                (
+                    self.target2[130:140],
+                    None,
+                    self.cov_st2,
+                    None,
+                    self.target2[135:145],
+                ),
             )
 
             # two target series with custom max_nr_samples
@@ -1097,11 +1177,18 @@ if TORCH_AVAILABLE:
             )
             assert len(ds) == 100
             self._assert_eq(
-                ds[5], (self.target1[80:90], None, self.cov_st1, self.target1[85:95])
+                ds[5],
+                (self.target1[80:90], None, self.cov_st1, None, self.target1[85:95]),
             )
             self._assert_eq(
                 ds[55],
-                (self.target2[130:140], None, self.cov_st2, self.target2[135:145]),
+                (
+                    self.target2[130:140],
+                    None,
+                    self.cov_st2,
+                    None,
+                    self.target2[135:145],
+                ),
             )
 
             # two targets and one covariate
@@ -1123,6 +1210,7 @@ if TORCH_AVAILABLE:
                     self.target1[80:90],
                     self.cov1[85:95],
                     self.cov_st1,
+                    None,
                     self.target1[85:95],
                 ),
             )
@@ -1132,6 +1220,7 @@ if TORCH_AVAILABLE:
                     self.target2[130:140],
                     self.cov2[135:145],
                     self.cov_st2,
+                    None,
                     self.target2[135:145],
                 ),
             )
@@ -1147,7 +1236,7 @@ if TORCH_AVAILABLE:
             np.testing.assert_almost_equal(ds[0][0], target1.values()[-5:-2])
             np.testing.assert_almost_equal(ds[0][1], cov1.values()[-5:-2])
             np.testing.assert_almost_equal(ds[0][2], self.cov_st2)
-            np.testing.assert_almost_equal(ds[0][3], target1.values()[-3:])
+            np.testing.assert_almost_equal(ds[0][4], target1.values()[-3:])
 
             # Should also contain correct values when time-indexed with covariates not aligned
             times1 = pd.date_range(start="20090201", end="20090220", freq="D")
@@ -1164,7 +1253,7 @@ if TORCH_AVAILABLE:
             np.testing.assert_almost_equal(ds[0][0], target1.values()[-5:-2])
             np.testing.assert_almost_equal(ds[0][1], cov1.values()[-5:-2])
             np.testing.assert_almost_equal(ds[0][2], self.cov_st2)
-            np.testing.assert_almost_equal(ds[0][3], target1.values()[-3:])
+            np.testing.assert_almost_equal(ds[0][4], target1.values()[-3:])
 
             # Should fail if covariates are too short
             target1 = TimeSeries.from_values(np.random.randn(8)).with_static_covariates(
@@ -1185,7 +1274,14 @@ if TORCH_AVAILABLE:
             assert len(ds) == 86
             self._assert_eq(
                 ds[5],
-                (self.target1[80:90], None, None, self.cov_st1, self.target1[85:95]),
+                (
+                    self.target1[80:90],
+                    None,
+                    None,
+                    self.cov_st1,
+                    None,
+                    self.target1[85:95],
+                ),
             )
 
             # two target series
@@ -1195,7 +1291,14 @@ if TORCH_AVAILABLE:
             assert len(ds) == 272
             self._assert_eq(
                 ds[5],
-                (self.target1[80:90], None, None, self.cov_st1, self.target1[85:95]),
+                (
+                    self.target1[80:90],
+                    None,
+                    None,
+                    self.cov_st1,
+                    None,
+                    self.target1[85:95],
+                ),
             )
             self._assert_eq(
                 ds[141],
@@ -1204,6 +1307,7 @@ if TORCH_AVAILABLE:
                     None,
                     None,
                     self.cov_st2,
+                    None,
                     self.target2[135:145],
                 ),
             )
@@ -1218,7 +1322,14 @@ if TORCH_AVAILABLE:
             assert len(ds) == 100
             self._assert_eq(
                 ds[5],
-                (self.target1[80:90], None, None, self.cov_st1, self.target1[85:95]),
+                (
+                    self.target1[80:90],
+                    None,
+                    None,
+                    self.cov_st1,
+                    None,
+                    self.target1[85:95],
+                ),
             )
             self._assert_eq(
                 ds[55],
@@ -1227,6 +1338,7 @@ if TORCH_AVAILABLE:
                     None,
                     None,
                     self.cov_st2,
+                    None,
                     self.target2[135:145],
                 ),
             )
@@ -1251,6 +1363,7 @@ if TORCH_AVAILABLE:
                     self.cov1[80:90],
                     self.cov1[85:95],
                     self.cov_st1,
+                    None,
                     self.target1[85:95],
                 ),
             )
@@ -1261,6 +1374,7 @@ if TORCH_AVAILABLE:
                     self.cov2[130:140],
                     self.cov2[135:145],
                     self.cov_st2,
+                    None,
                     self.target2[135:145],
                 ),
             )
@@ -1277,7 +1391,7 @@ if TORCH_AVAILABLE:
             np.testing.assert_almost_equal(ds[0][1], cov1.values()[-7:-4])
             np.testing.assert_almost_equal(ds[0][2], cov1.values()[-5:-2])
             np.testing.assert_almost_equal(ds[0][3], self.cov_st2)
-            np.testing.assert_almost_equal(ds[0][4], target1.values()[-3:])
+            np.testing.assert_almost_equal(ds[0][5], target1.values()[-3:])
 
             # Should also contain correct values when time-indexed with covariates not aligned
             times1 = pd.date_range(start="20090201", end="20090220", freq="D")
@@ -1295,7 +1409,7 @@ if TORCH_AVAILABLE:
             np.testing.assert_almost_equal(ds[0][1], cov1.values()[-7:-4])
             np.testing.assert_almost_equal(ds[0][2], cov1.values()[-5:-2])
             np.testing.assert_almost_equal(ds[0][3], self.cov_st2)
-            np.testing.assert_almost_equal(ds[0][4], target1.values()[-3:])
+            np.testing.assert_almost_equal(ds[0][5], target1.values()[-3:])
 
             # Should fail if covariates are too short
             target1 = TimeSeries.from_values(np.random.randn(8)).with_static_covariates(

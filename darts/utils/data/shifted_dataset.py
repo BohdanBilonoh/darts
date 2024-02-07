@@ -89,7 +89,13 @@ class PastCovariatesShiftedDataset(PastCovariatesTrainingDataset):
 
     def __getitem__(
         self, idx
-    ) -> Tuple[np.ndarray, Optional[np.ndarray], Optional[np.ndarray], np.ndarray]:
+    ) -> Tuple[
+        np.ndarray,
+        Optional[np.ndarray],
+        Optional[np.ndarray],
+        Optional[np.ndarray],
+        np.ndarray,
+    ]:
         return self.ds[idx]
 
 
@@ -164,7 +170,13 @@ class FutureCovariatesShiftedDataset(FutureCovariatesTrainingDataset):
 
     def __getitem__(
         self, idx
-    ) -> Tuple[np.ndarray, Optional[np.ndarray], Optional[np.ndarray], np.ndarray]:
+    ) -> Tuple[
+        np.ndarray,
+        Optional[np.ndarray],
+        Optional[np.ndarray],
+        Optional[np.ndarray],
+        np.ndarray,
+    ]:
         return self.ds[idx]
 
 
@@ -258,15 +270,23 @@ class DualCovariatesShiftedDataset(DualCovariatesTrainingDataset):
         Optional[np.ndarray],
         Optional[np.ndarray],
         Optional[np.ndarray],
+        Optional[np.ndarray],
         np.ndarray,
     ]:
-        past_target, past_covariate, static_covariate, future_target = self.ds_past[idx]
-        _, future_covariate, _, _ = self.ds_future[idx]
+        (
+            past_target,
+            past_covariate,
+            static_covariate,
+            future_target_weights,
+            future_target,
+        ) = self.ds_past[idx]
+        _, future_covariate, _, _, _ = self.ds_future[idx]
         return (
             past_target,
             past_covariate,
             future_covariate,
             static_covariate,
+            future_target_weights,
             future_target,
         )
 
@@ -360,17 +380,25 @@ class MixedCovariatesShiftedDataset(MixedCovariatesTrainingDataset):
         Optional[np.ndarray],
         Optional[np.ndarray],
         Optional[np.ndarray],
+        Optional[np.ndarray],
         np.ndarray,
     ]:
 
-        past_target, past_covariate, static_covariate, future_target = self.ds_past[idx]
-        _, historic_future_covariate, future_covariate, _, _ = self.ds_dual[idx]
+        (
+            past_target,
+            past_covariate,
+            static_covariate,
+            future_target_weights,
+            future_target,
+        ) = self.ds_past[idx]
+        _, historic_future_covariate, future_covariate, _, _, _ = self.ds_dual[idx]
         return (
             past_target,
             past_covariate,
             historic_future_covariate,
             future_covariate,
             static_covariate,
+            future_target_weights,
             future_target,
         )
 
@@ -467,15 +495,23 @@ class SplitCovariatesShiftedDataset(SplitCovariatesTrainingDataset):
         Optional[np.ndarray],
         Optional[np.ndarray],
         Optional[np.ndarray],
+        Optional[np.ndarray],
         np.ndarray,
     ]:
-        past_target, past_covariate, static_covariate, future_target = self.ds_past[idx]
-        _, future_covariate, _, _ = self.ds_future[idx]
+        (
+            past_target,
+            past_covariate,
+            static_covariate,
+            future_target_weights,
+            future_target,
+        ) = self.ds_past[idx]
+        _, future_covariate, _, _, _ = self.ds_future[idx]
         return (
             past_target,
             past_covariate,
             future_covariate,
             static_covariate,
+            future_target_weights,
             future_target,
         )
 
@@ -571,7 +607,11 @@ class GenericShiftedDataset(TrainingDataset):
     def __getitem__(
         self, idx
     ) -> Tuple[
-        np.ndarray, Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray]
+        np.ndarray,
+        Optional[np.ndarray],
+        Optional[np.ndarray],
+        Optional[np.ndarray],
+        Optional[np.ndarray],
     ]:
         # determine the index of the time series.
         target_idx = idx // self.max_samples_per_ts
@@ -629,6 +669,12 @@ class GenericShiftedDataset(TrainingDataset):
         future_target = target_vals[future_start:future_end]
         past_target = target_vals[past_start:past_end]
 
+        future_target_weights = None
+        if target_series.has_sample_weights:
+            future_target_weights = target_series.sample_weights[
+                future_start:future_end
+            ]
+
         # optionally, extract sample covariates
         covariate = None
         if self.covariates is not None:
@@ -658,4 +704,10 @@ class GenericShiftedDataset(TrainingDataset):
             static_covariate = target_series.static_covariates_values(copy=False)
         else:
             static_covariate = None
-        return past_target, covariate, static_covariate, future_target
+        return (
+            past_target,
+            covariate,
+            static_covariate,
+            future_target_weights,
+            future_target,
+        )

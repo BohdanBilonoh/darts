@@ -92,7 +92,13 @@ class PastCovariatesSequentialDataset(PastCovariatesTrainingDataset):
 
     def __getitem__(
         self, idx
-    ) -> Tuple[np.ndarray, Optional[np.ndarray], Optional[np.ndarray], np.ndarray]:
+    ) -> Tuple[
+        np.ndarray,
+        Optional[np.ndarray],
+        Optional[np.ndarray],
+        Optional[np.ndarray],
+        np.ndarray,
+    ]:
         return self.ds[idx]
 
 
@@ -168,7 +174,13 @@ class FutureCovariatesSequentialDataset(FutureCovariatesTrainingDataset):
 
     def __getitem__(
         self, idx
-    ) -> Tuple[np.ndarray, Optional[np.ndarray], Optional[np.ndarray], np.ndarray]:
+    ) -> Tuple[
+        np.ndarray,
+        Optional[np.ndarray],
+        Optional[np.ndarray],
+        Optional[np.ndarray],
+        np.ndarray,
+    ]:
         return self.ds[idx]
 
 
@@ -262,15 +274,23 @@ class DualCovariatesSequentialDataset(DualCovariatesTrainingDataset):
         Optional[np.ndarray],
         Optional[np.ndarray],
         Optional[np.ndarray],
+        Optional[np.ndarray],
         np.ndarray,
     ]:
-        past_target, past_covariate, static_covariate, future_target = self.ds_past[idx]
-        _, future_covariate, _, _ = self.ds_future[idx]
+        (
+            past_target,
+            past_covariate,
+            static_covariate,
+            future_target_weights,
+            future_target,
+        ) = self.ds_past[idx]
+        _, future_covariate, _, _, _ = self.ds_future[idx]
         return (
             past_target,
             past_covariate,
             future_covariate,
             static_covariate,
+            future_target_weights,
             future_target,
         )
 
@@ -368,17 +388,24 @@ class MixedCovariatesSequentialDataset(MixedCovariatesTrainingDataset):
         Optional[np.ndarray],
         Optional[np.ndarray],
         Optional[np.ndarray],
+        Optional[np.ndarray],
         np.ndarray,
     ]:
-
-        past_target, past_covariate, static_covariate, future_target = self.ds_past[idx]
-        _, historic_future_covariate, future_covariate, _, _ = self.ds_dual[idx]
+        (
+            past_target,
+            past_covariate,
+            static_covariate,
+            future_target_weights,
+            future_target,
+        ) = self.ds_past[idx]
+        _, historic_future_covariate, future_covariate, _, _, _ = self.ds_dual[idx]
         return (
             past_target,
             past_covariate,
             historic_future_covariate,
             future_covariate,
             static_covariate,
+            future_target_weights,
             future_target,
         )
 
@@ -476,14 +503,22 @@ class SplitCovariatesSequentialDataset(SplitCovariatesTrainingDataset):
         Optional[np.ndarray],
         Optional[np.ndarray],
         Optional[np.ndarray],
+        Optional[np.ndarray],
         np.ndarray,
     ]:
-        past_target, past_covariate, static_covariate, future_target = self.ds_past[idx]
-        _, future_covariate, _, _ = self.ds_future[idx]
+        (
+            past_target,
+            past_covariate,
+            static_covariate,
+            future_target_weights,
+            future_target,
+        ) = self.ds_past[idx]
+        _, future_covariate, _, _, _ = self.ds_future[idx]
         return (
             past_target,
             past_covariate,
             future_covariate,
             static_covariate,
+            future_target_weights,
             future_target,
         )

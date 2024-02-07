@@ -38,7 +38,13 @@ from darts.utils.likelihood_models import Likelihood, QuantileRegression
 logger = get_logger(__name__)
 
 MixedCovariatesTrainTensorType = Tuple[
-    torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
 ]
 
 
@@ -985,6 +991,7 @@ class TFTModel(MixedCovariatesTorchModel):
             historic_future_covariate,
             future_covariate,
             static_covariates,
+            _,
             future_target,
         ) = train_sample
 

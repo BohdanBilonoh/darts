@@ -5102,7 +5102,7 @@ class TimeSeries:
             xa_ = _xarray_with_attrs(
                 xa_=xa_,
                 static_covariates=xa_.attrs[STATIC_COV_TAG],
-                hierarchy=None,
+                hierarchy=xa_.attrs[HIERARCHY_TAG],
                 sample_weights=(
                     xa_.attrs[SAMPLE_WEIGHTS_TAG][indexes]
                     if self.has_sample_weights
@@ -5127,7 +5127,7 @@ class TimeSeries:
             xa_ = _xarray_with_attrs(
                 xa_=xa_,
                 static_covariates=xa_.attrs[STATIC_COV_TAG],
-                hierarchy=None,
+                hierarchy=xa_.attrs[HIERARCHY_TAG],
                 sample_weights=(
                     xa_.attrs[SAMPLE_WEIGHTS_TAG][list(key)]
                     if self.has_sample_weights
@@ -5150,7 +5150,7 @@ class TimeSeries:
                     xa_.attrs[STATIC_COV_TAG][key.start : key.stop]
                     if adapt_covs_on_component
                     else xa_.attrs[STATIC_COV_TAG],
-                    xa_.attrs[HIERARCHY_TAG],
+                    None,
                     sample_weights=(
                         (
                             xa_.attrs[SAMPLE_WEIGHTS_TAG][:, indexes]
@@ -5220,7 +5220,7 @@ class TimeSeries:
             # selecting components discards the hierarchy, if any
             xa_ = _xarray_with_attrs(
                 xa_,
-                xa_.attrs[STATIC_COV_TAG]
+                xa_.attrs[STATIC_COV_TAG].loc[[key]]
                 if adapt_covs_on_component
                 else xa_.attrs[STATIC_COV_TAG],
                 hierarchy=None,
@@ -5259,7 +5259,7 @@ class TimeSeries:
                 xa_.attrs[STATIC_COV_TAG]
                 if adapt_covs_on_component
                 else xa_.attrs[STATIC_COV_TAG],
-                hierarchy=None,
+                hierarchy=xa_.attrs[HIERARCHY_TAG],
                 sample_weights=(
                     xa_.attrs[SAMPLE_WEIGHTS_TAG][[key]]
                     if self.has_sample_weights
@@ -5282,7 +5282,7 @@ class TimeSeries:
                 xa_.attrs[STATIC_COV_TAG]
                 if adapt_covs_on_component
                 else xa_.attrs[STATIC_COV_TAG],
-                hierarchy=None,
+                hierarchy=xa_.attrs[HIERARCHY_TAG],
                 sample_weights=(
                     xa_.attrs[SAMPLE_WEIGHTS_TAG][[index]]
                     if self.has_sample_weights
@@ -5303,7 +5303,7 @@ class TimeSeries:
 
                 xa_ = _xarray_with_attrs(
                     xa_,
-                    xa_.attrs[STATIC_COV_TAG]
+                    xa_.attrs[STATIC_COV_TAG].loc[key]
                     if adapt_covs_on_component
                     else xa_.attrs[STATIC_COV_TAG],
                     hierarchy=None,
@@ -5350,7 +5350,7 @@ class TimeSeries:
                     xa_.attrs[STATIC_COV_TAG]
                     if adapt_covs_on_component
                     else xa_.attrs[STATIC_COV_TAG],
-                    hierarchy=None,
+                    hierarchy=xa_.attrs[HIERARCHY_TAG],
                     sample_weights=(
                         xa_.attrs[SAMPLE_WEIGHTS_TAG][key]
                         if self.has_sample_weights
@@ -5375,7 +5375,7 @@ class TimeSeries:
                     xa_.attrs[STATIC_COV_TAG]
                     if adapt_covs_on_component
                     else xa_.attrs[STATIC_COV_TAG],
-                    hierarchy=None,
+                    hierarchy=xa_.attrs[HIERARCHY_TAG],
                     sample_weights=(
                         xa_.attrs[SAMPLE_WEIGHTS_TAG][indexes]
                         if self.has_sample_weights

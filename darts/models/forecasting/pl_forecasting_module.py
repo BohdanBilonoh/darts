@@ -6,7 +6,6 @@ from abc import ABC, abstractmethod
 from functools import wraps
 from typing import Any, Dict, Optional, Sequence, Tuple, Union
 
-import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torchmetrics
@@ -17,13 +16,15 @@ from darts.models.components.layer_norm_variants import RINorm
 from darts.timeseries import TimeSeries
 from darts.utils.likelihood_models import Likelihood
 from darts.utils.timeseries_generation import _build_forecast_series
-from darts.utils.torch import MonteCarloDropout
+from darts.utils.torch import MonteCarloDropout, lightning_version
 
 logger = get_logger(__name__)
+pl_200_or_above = int(lightning_version[0]) >= 2
 
-# Check whether we are running pytorch-lightning >= 1.6.0 or not:
-tokens = pl.__version__.split(".")
-pl_160_or_above = int(tokens[0]) > 1 or int(tokens[0]) == 1 and int(tokens[1]) >= 6
+if pl_200_or_above:
+    from lightning.pytorch import LightningModule
+else:
+    from pytorch_lightning import LightningModule
 
 
 def io_processor(forward):
@@ -65,7 +66,7 @@ def io_processor(forward):
     return forward_wrapper
 
 
-class PLForecastingModule(pl.LightningModule, ABC):
+class PLForecastingModule(LightningModule, ABC):
     @abstractmethod
     def __init__(
         self,
@@ -522,13 +523,7 @@ class PLForecastingModule(pl.LightningModule, ABC):
 
     @property
     def epochs_trained(self):
-        current_epoch = self.current_epoch
-
-        # For PTL < 1.6.0 we have to adjust:
-        if not pl_160_or_above and (self.current_epoch or self.global_step):
-            current_epoch += 1
-
-        return current_epoch
+        return self.current_epoch
 
     @property
     def output_chunk_length(self) -> Optional[int]:

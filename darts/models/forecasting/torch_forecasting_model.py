@@ -37,9 +37,7 @@ except ImportError:
 
 import numpy as np
 import pandas as pd
-import pytorch_lightning as pl
 import torch
-from pytorch_lightning import loggers as pl_loggers
 from torch import Tensor
 from torch.utils.data import DataLoader
 
@@ -88,18 +86,20 @@ from darts.utils.historical_forecasts.optimized_historical_forecasts_torch impor
     _optimized_historical_forecasts,
 )
 from darts.utils.likelihood_models import Likelihood
-from darts.utils.torch import random_method
+from darts.utils.torch import lightning_version, random_method
 from darts.utils.utils import get_single_series, seq2series, series2seq
 
 # Check whether we are running pytorch-lightning >= 2.0.0 or not:
-tokens = pl.__version__.split(".")
-pl_200_or_above = int(tokens[0]) >= 2
+pl_200_or_above = int(lightning_version[0]) >= 2
 
 if pl_200_or_above:
-    from pytorch_lightning.callbacks import ProgressBar
-    from pytorch_lightning.tuner import Tuner
+    from lightning import Trainer
+    from lightning.pytorch import loggers as pl_loggers
+    from lightning.pytorch.callbacks import ModelCheckpoint, ProgressBar
+    from lightning.pytorch.tuner import Tuner
 else:
-    from pytorch_lightning.callbacks import ProgressBarBase as ProgressBar
+    from pytorch_lightning import Trainer
+    from pytorch_lightning.callbacks import ModelCheckpoint, ProgressBar
     from pytorch_lightning.tuner.tuning import Tuner
 
 
@@ -122,15 +122,15 @@ logger = get_logger(__name__)
 
 
 def _get_checkpoint_folder(work_dir, model_name):
-    return os.path.join(work_dir, model_name, CHECKPOINTS_FOLDER)
+    return str(os.path.join(work_dir, model_name, CHECKPOINTS_FOLDER))
 
 
 def _get_logs_folder(work_dir, model_name):
-    return os.path.join(work_dir, model_name)
+    return str(os.path.join(work_dir, model_name))
 
 
 def _get_runs_folder(work_dir, model_name):
-    return os.path.join(work_dir, model_name)
+    return str(os.path.join(work_dir, model_name))
 
 
 def _get_checkpoint_fname(work_dir, model_name, best=False):
@@ -342,10 +342,10 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         else:
             pass
 
-        # save best epoch on val_loss and last epoch under 'darts_logs/model_name/checkpoints/'
+        # save the best epoch on val_loss and last epoch under 'darts_logs/model_name/checkpoints/'
         if save_checkpoints:
-            checkpoint_callback = pl.callbacks.ModelCheckpoint(
-                dirpath=checkpoints_folder,
+            checkpoint_callback = ModelCheckpoint(
+                dirpath=str(checkpoints_folder),
                 save_last=True,
                 monitor="val_loss",
                 filename="best-{epoch}-{val_loss:.2f}",
@@ -383,7 +383,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
 
         # pytorch lightning trainer will be created at training time
         # keep a reference of the trainer, to avoid weak reference errors
-        self.trainer: Optional[pl.Trainer] = None
+        self.trainer: Optional[Trainer] = None
         self.load_ckpt_path: Optional[str] = None
 
         # pl_module_params must be set in __init__ method of TorchForecastingModel subclass
@@ -447,7 +447,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         self.model = None
         self.train_sample = None
 
-    def _init_model(self, trainer: Optional[pl.Trainer] = None) -> PLForecastingModule:
+    def _init_model(self, trainer: Optional[Trainer] = None) -> PLForecastingModule:
         """Initializes model and trainer based on examples of input/output tensors (to get the sizes right):"""
 
         raise_if(
@@ -524,11 +524,11 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
 
     def _setup_trainer(
         self,
-        trainer: Optional[pl.Trainer],
+        trainer: Optional[Trainer],
         model: PLForecastingModule,
         verbose: Optional[bool] = None,
         epochs: int = 0,
-    ) -> pl.Trainer:
+    ) -> Trainer:
         """Sets up a PyTorch-Lightning trainer (if not already provided) for training or prediction."""
         if trainer is not None:
             return trainer
@@ -549,7 +549,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
     @staticmethod
     def _init_trainer(
         trainer_params: dict, max_epochs: Optional[int] = None
-    ) -> pl.Trainer:
+    ) -> Trainer:
         """Initializes a PyTorch-Lightning trainer for training or prediction from `trainer_params`."""
         trainer_params_copy = {key: val for key, val in trainer_params.items()}
         if max_epochs is not None:
@@ -557,7 +557,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
 
         # prevent lightning from adding callbacks to the callbacks list in `self.trainer_params`
         callbacks = trainer_params_copy.pop("callbacks", None)
-        return pl.Trainer(
+        return Trainer(
             callbacks=[cb for cb in callbacks] if callbacks is not None else callbacks,
             **trainer_params_copy,
         )
@@ -636,7 +636,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         val_series: Optional[Union[TimeSeries, Sequence[TimeSeries]]] = None,
         val_past_covariates: Optional[Union[TimeSeries, Sequence[TimeSeries]]] = None,
         val_future_covariates: Optional[Union[TimeSeries, Sequence[TimeSeries]]] = None,
-        trainer: Optional[pl.Trainer] = None,
+        trainer: Optional[Trainer] = None,
         verbose: Optional[bool] = None,
         epochs: int = 0,
         max_samples_per_ts: Optional[int] = None,
@@ -738,7 +738,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         val_series: Optional[Union[TimeSeries, Sequence[TimeSeries]]] = None,
         val_past_covariates: Optional[Union[TimeSeries, Sequence[TimeSeries]]] = None,
         val_future_covariates: Optional[Union[TimeSeries, Sequence[TimeSeries]]] = None,
-        trainer: Optional[pl.Trainer] = None,
+        trainer: Optional[Trainer] = None,
         verbose: Optional[bool] = None,
         epochs: int = 0,
         max_samples_per_ts: Optional[int] = None,
@@ -752,7 +752,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         Tuple[
             TrainingDataset,
             Optional[TrainingDataset],
-            Optional[pl.Trainer],
+            Optional[Trainer],
             Optional[bool],
             int,
             int,
@@ -883,7 +883,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         self,
         train_dataset: TrainingDataset,
         val_dataset: Optional[TrainingDataset] = None,
-        trainer: Optional[pl.Trainer] = None,
+        trainer: Optional[Trainer] = None,
         verbose: Optional[bool] = None,
         epochs: int = 0,
         num_loader_workers: int = 0,
@@ -946,11 +946,11 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         self,
         train_dataset: TrainingDataset,
         val_dataset: Optional[TrainingDataset] = None,
-        trainer: Optional[pl.Trainer] = None,
+        trainer: Optional[Trainer] = None,
         verbose: Optional[bool] = None,
         epochs: int = 0,
         num_loader_workers: int = 0,
-    ) -> Tuple[pl.Trainer, PLForecastingModule, DataLoader, Optional[DataLoader]]:
+    ) -> Tuple[Trainer, PLForecastingModule, DataLoader, Optional[DataLoader]]:
         """This method acts on `TrainingDataset` inputs. It performs sanity checks, and sets up / returns the trainer,
         model, and dataset loaders required for training the model with `_train()`.
         """
@@ -1052,7 +1052,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
 
     def _train(
         self,
-        trainer: pl.Trainer,
+        trainer: Trainer,
         model: PLForecastingModule,
         train_loader: DataLoader,
         val_loader: Optional[DataLoader],
@@ -1092,7 +1092,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         val_series: Optional[Union[TimeSeries, Sequence[TimeSeries]]] = None,
         val_past_covariates: Optional[Union[TimeSeries, Sequence[TimeSeries]]] = None,
         val_future_covariates: Optional[Union[TimeSeries, Sequence[TimeSeries]]] = None,
-        trainer: Optional[pl.Trainer] = None,
+        trainer: Optional[Trainer] = None,
         verbose: Optional[bool] = None,
         epochs: int = 0,
         max_samples_per_ts: Optional[int] = None,
@@ -1227,7 +1227,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         series: Optional[Union[TimeSeries, Sequence[TimeSeries]]] = None,
         past_covariates: Optional[Union[TimeSeries, Sequence[TimeSeries]]] = None,
         future_covariates: Optional[Union[TimeSeries, Sequence[TimeSeries]]] = None,
-        trainer: Optional[pl.Trainer] = None,
+        trainer: Optional[Trainer] = None,
         batch_size: Optional[int] = None,
         verbose: Optional[bool] = None,
         n_jobs: int = 1,
@@ -1391,7 +1391,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         self,
         n: int,
         input_series_dataset: InferenceDataset,
-        trainer: Optional[pl.Trainer] = None,
+        trainer: Optional[Trainer] = None,
         batch_size: Optional[int] = None,
         verbose: Optional[bool] = None,
         n_jobs: int = 1,
@@ -2766,7 +2766,7 @@ class MixedCovariatesTorchModel(TorchForecastingModel, ABC):
         series: Optional[Union[TimeSeries, Sequence[TimeSeries]]] = None,
         past_covariates: Optional[Union[TimeSeries, Sequence[TimeSeries]]] = None,
         future_covariates: Optional[Union[TimeSeries, Sequence[TimeSeries]]] = None,
-        trainer: Optional[pl.Trainer] = None,
+        trainer: Optional[Trainer] = None,
         batch_size: Optional[int] = None,
         verbose: Optional[bool] = None,
         n_jobs: int = 1,

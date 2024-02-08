@@ -4,11 +4,22 @@ import pytest
 from darts.logging import get_logger
 from darts.tests.conftest import tfm_kwargs
 from darts.utils.timeseries_generation import linear_timeseries
+from darts.utils.torch import lightning_version
 
 logger = get_logger(__name__)
+pl_200_or_above = int(lightning_version[0]) >= 2
 
 try:
-    import pytorch_lightning as pl
+    if pl_200_or_above:
+        from lightning import Trainer
+        from lightning.pytorch.callbacks.callback import Callback
+        from lightning.pytorch.callbacks.early_stopping import EarlyStopping
+        from lightning.pytorch.callbacks.model_checkpoint import ModelCheckpoint
+    else:
+        from pytorch_lightning.callbacks.early_stopping import EarlyStopping
+        from pytorch_lightning.callbacks.callback import Callback
+        from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
+        from pytorch_lightning import Trainer
 
     from darts.models.forecasting.rnn_model import RNNModel
 
@@ -27,7 +38,6 @@ if TORCH_AVAILABLE:
             "enable_checkpointing": False,
         }
         series = linear_timeseries(length=100).astype(np.float32)
-        pl_200_or_above = int(pl.__version__.split(".")[0]) >= 2
         precisions = {
             32: "32" if not pl_200_or_above else "32-true",
             64: "64" if not pl_200_or_above else "64-true",
@@ -49,7 +59,7 @@ if TORCH_AVAILABLE:
             )
 
             # fit model with custom trainer
-            trainer = pl.Trainer(
+            trainer = Trainer(
                 max_epochs=1,
                 enable_checkpointing=True,
                 logger=False,
@@ -74,7 +84,7 @@ if TORCH_AVAILABLE:
             model2 = RNNModel(12, "RNN", 10, 10, random_state=42, **tfm_kwargs)
 
             # fit model with custom trainer
-            trainer = pl.Trainer(
+            trainer = Trainer(
                 **self.trainer_params,
                 precision=self.precisions[32],
                 **tfm_kwargs["pl_trainer_kwargs"],
@@ -91,7 +101,7 @@ if TORCH_AVAILABLE:
             model = RNNModel(12, "RNN", 10, 10, random_state=42, **tfm_kwargs)
 
             # trainer with wrong precision should raise ValueError
-            trainer = pl.Trainer(
+            trainer = Trainer(
                 **self.trainer_params,
                 precision=self.precisions[64],
                 **tfm_kwargs["pl_trainer_kwargs"],
@@ -100,7 +110,7 @@ if TORCH_AVAILABLE:
                 model.fit(self.series, trainer=trainer)
 
             # no error with correct precision
-            trainer = pl.Trainer(
+            trainer = Trainer(
                 **self.trainer_params,
                 precision=self.precisions[32],
                 **tfm_kwargs["pl_trainer_kwargs"],
@@ -181,7 +191,7 @@ if TORCH_AVAILABLE:
                 assert preds.dtype == ts_dtype
 
         def test_custom_callback(self, tmpdir_module):
-            class CounterCallback(pl.callbacks.Callback):
+            class CounterCallback(Callback):
                 # counts the number of trained epochs starting from count_default
                 def __init__(self, count_default):
                     self.counter = count_default
@@ -231,16 +241,14 @@ if TORCH_AVAILABLE:
             assert len(model.trainer_params["callbacks"]) == 3
 
             # first one is our Checkpointer
-            assert isinstance(
-                model.trainer_params["callbacks"][0], pl.callbacks.ModelCheckpoint
-            )
+            assert isinstance(model.trainer_params["callbacks"][0], ModelCheckpoint)
 
             # second and third are CounterCallbacks
             for i in range(1, 3):
                 assert isinstance(model.trainer_params["callbacks"][i], CounterCallback)
 
         def test_early_stopping(self):
-            my_stopper = pl.callbacks.early_stopping.EarlyStopping(
+            my_stopper = EarlyStopping(
                 monitor="val_loss",
                 stopping_threshold=1e9,
             )
@@ -262,7 +270,7 @@ if TORCH_AVAILABLE:
             assert model.epochs_trained == 1
 
             # check that early stopping only takes valid monitor variables
-            my_stopper = pl.callbacks.early_stopping.EarlyStopping(
+            my_stopper = EarlyStopping(
                 monitor="invalid_variable",
                 stopping_threshold=1e9,
             )

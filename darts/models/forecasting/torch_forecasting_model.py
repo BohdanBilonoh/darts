@@ -165,6 +165,8 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         force_reset: bool = False,
         save_checkpoints: bool = False,
         checkpoints_folder: Optional[str] = None,
+        checkpoints_every_n_train_steps: Optional[int] = None,
+        checkpoints_every_n_epochs: Optional[int] = None,
         add_encoders: Optional[dict] = None,
         random_state: Optional[int] = None,
         pl_trainer_kwargs: Optional[dict] = None,
@@ -348,9 +350,11 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
                 dirpath=str(checkpoints_folder),
                 save_last=True,
                 monitor="val_loss",
-                filename="best-{epoch}-{val_loss:.2f}",
+                filename="best-{epoch}-{step}-{val_loss:.2f}",
+                every_n_train_steps=checkpoints_every_n_train_steps,
+                every_n_epochs=checkpoints_every_n_epochs,
             )
-            checkpoint_callback.CHECKPOINT_NAME_LAST = "last-{epoch}"
+            checkpoint_callback.CHECKPOINT_NAME_LAST = "last-{epoch}-{step}"
         else:
             checkpoint_callback = None
 

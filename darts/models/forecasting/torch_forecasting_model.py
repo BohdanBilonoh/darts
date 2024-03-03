@@ -670,6 +670,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         max_samples_per_ts: Optional[int] = None,
         num_loader_workers: int = 0,
         prefetch_factor: Optional[int] = None,
+        persistent_workers: bool = False,
     ) -> "TorchForecastingModel":
         """Fit/train the model on one or multiple series.
 
@@ -751,6 +752,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
             max_samples_per_ts=max_samples_per_ts,
             num_loader_workers=num_loader_workers,
             prefetch_factor=prefetch_factor,
+            persistent_workers=persistent_workers,
         )
         # call super fit only if user is actually fitting the model
         super().fit(
@@ -774,6 +776,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         max_samples_per_ts: Optional[int] = None,
         num_loader_workers: int = 0,
         prefetch_factor: Optional[int] = None,
+        persistent_workers: bool = False,
     ) -> Tuple[
         Tuple[
             Sequence[TimeSeries],
@@ -911,6 +914,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
             epochs,
             num_loader_workers,
             prefetch_factor,
+            persistent_workers,
         )
         return series_input, fit_from_ds_params
 
@@ -924,6 +928,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         epochs: int = 0,
         num_loader_workers: int = 0,
         prefetch_factor: Optional[int] = None,
+        persistent_workers: bool = False,
     ) -> "TorchForecastingModel":
         """
         Train the model with a specific :class:`darts.utils.data.TrainingDataset` instance.
@@ -976,6 +981,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
                 epochs=epochs,
                 num_loader_workers=num_loader_workers,
                 prefetch_factor=prefetch_factor,
+                persistent_workers=persistent_workers,
             )
         )
         return self
@@ -989,6 +995,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         epochs: int = 0,
         num_loader_workers: int = 0,
         prefetch_factor: Optional[int] = None,
+        persistent_workers: bool = False,
     ) -> Tuple[Trainer, PLForecastingModule, DataLoader, Optional[DataLoader]]:
         """This method acts on `TrainingDataset` inputs. It performs sanity checks, and sets up / returns the trainer,
         model, and dataset loaders required for training the model with `_train()`.
@@ -1056,6 +1063,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
             shuffle=True,
             num_workers=num_loader_workers,
             prefetch_factor=prefetch_factor,
+            persistent_workers=persistent_workers,
             pin_memory=True,
             drop_last=False,
             collate_fn=self._batch_collate_fn,
@@ -1071,6 +1079,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
                 shuffle=False,
                 num_workers=num_loader_workers,
                 prefetch_factor=prefetch_factor,
+                persistent_workers=persistent_workers,
                 pin_memory=True,
                 drop_last=False,
                 collate_fn=self._batch_collate_fn,
@@ -1140,6 +1149,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         max_samples_per_ts: Optional[int] = None,
         num_loader_workers: int = 0,
         prefetch_factor: Optional[int] = None,
+        persistent_workers: bool = False,
         min_lr: float = 1e-08,
         max_lr: float = 1,
         num_training: int = 100,
@@ -1249,6 +1259,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
             max_samples_per_ts=max_samples_per_ts,
             num_loader_workers=num_loader_workers,
             prefetch_factor=prefetch_factor,
+            persistent_workers=persistent_workers,
         )
         trainer, model, train_loader, val_loader = self._setup_for_train(*params)
         return Tuner(trainer).lr_find(
@@ -1279,6 +1290,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         num_samples: int = 1,
         num_loader_workers: int = 0,
         prefetch_factor: Optional[int] = None,
+        persistent_workers: bool = False,
         mc_dropout: bool = False,
         predict_likelihood_parameters: bool = False,
         show_warnings: bool = True,
@@ -1430,6 +1442,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
             num_samples=num_samples,
             num_loader_workers=num_loader_workers,
             prefetch_factor=prefetch_factor,
+            persistent_workers=persistent_workers,
             mc_dropout=mc_dropout,
             predict_likelihood_parameters=predict_likelihood_parameters,
         )
@@ -1449,6 +1462,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         num_samples: int = 1,
         num_loader_workers: int = 0,
         prefetch_factor: Optional[int] = None,
+        persistent_workers: bool = False,
         mc_dropout: bool = False,
         predict_likelihood_parameters: bool = False,
     ) -> Sequence[TimeSeries]:
@@ -1553,6 +1567,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
             shuffle=False,
             num_workers=num_loader_workers,
             prefetch_factor=prefetch_factor,
+            persistent_workers=persistent_workers,
             pin_memory=True,
             drop_last=False,
             collate_fn=self._batch_collate_fn,
@@ -2826,6 +2841,7 @@ class MixedCovariatesTorchModel(TorchForecastingModel, ABC):
         num_samples: int = 1,
         num_loader_workers: int = 0,
         prefetch_factor: Optional[int] = None,
+        persistent_workers: bool = False,
         mc_dropout: bool = False,
         predict_likelihood_parameters: bool = False,
         show_warnings: bool = True,
@@ -2848,6 +2864,7 @@ class MixedCovariatesTorchModel(TorchForecastingModel, ABC):
                 num_samples=num_samples,
                 num_loader_workers=num_loader_workers,
                 prefetch_factor=prefetch_factor,
+                persistent_workers=persistent_workers,
                 mc_dropout=mc_dropout,
                 predict_likelihood_parameters=predict_likelihood_parameters,
                 show_warnings=show_warnings,
@@ -2866,6 +2883,7 @@ class MixedCovariatesTorchModel(TorchForecastingModel, ABC):
                 num_samples=num_samples,
                 num_loader_workers=num_loader_workers,
                 prefetch_factor=prefetch_factor,
+                persistent_workers=persistent_workers,
                 mc_dropout=mc_dropout,
                 predict_likelihood_parameters=predict_likelihood_parameters,
                 show_warnings=show_warnings,

@@ -1294,7 +1294,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         mc_dropout: bool = False,
         predict_likelihood_parameters: bool = False,
         show_warnings: bool = True,
-    ) -> Union[TimeSeries, Sequence[TimeSeries]]:
+    ) -> Union[Optional[TimeSeries], Optional[Sequence[TimeSeries]]]:
         """Predict the ``n`` time step following the end of the training series, or of the specified ``series``.
 
         Prediction is performed with a PyTorch Lightning Trainer. It uses a default Trainer object from presets and
@@ -1447,7 +1447,10 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
             predict_likelihood_parameters=predict_likelihood_parameters,
         )
 
-        return predictions[0] if called_with_single_series else predictions
+        if predictions:
+            return predictions[0] if called_with_single_series else predictions
+        else:
+            return None
 
     @random_method
     def predict_from_dataset(
@@ -1465,7 +1468,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         persistent_workers: bool = False,
         mc_dropout: bool = False,
         predict_likelihood_parameters: bool = False,
-    ) -> Sequence[TimeSeries]:
+    ) -> Optional[Sequence[TimeSeries]]:
         """
         This method allows for predicting with a specific :class:`darts.utils.data.InferenceDataset` instance.
         These datasets implement a PyTorch ``Dataset``, and specify how the target and covariates are sliced
@@ -1584,7 +1587,11 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         # prediction output comes as nested list: list of predicted `TimeSeries` for each batch.
         predictions = self.trainer.predict(self.model, pred_loader)
         # flatten and return
-        return [ts for batch in predictions for ts in batch]
+
+        if predictions:
+            return [ts for batch in predictions for ts in batch]
+        else:
+            return None
 
     @property
     def first_prediction_index(self) -> int:

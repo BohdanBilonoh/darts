@@ -350,7 +350,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
                 dirpath=str(checkpoints_folder),
                 save_last=True,
                 monitor="val_loss",
-                filename="best-{epoch}-{step}-{val_loss:.2f}",
+                filename="best-{epoch}-{step}-{val_loss:.7f}",
                 every_n_train_steps=checkpoints_every_n_train_steps,
                 every_n_epochs=checkpoints_every_n_epochs,
             )

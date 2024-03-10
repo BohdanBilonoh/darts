@@ -4,6 +4,7 @@ Utils for Pytorch and its usage
 """
 
 from functools import wraps
+from importlib.metadata import version
 from inspect import signature
 from typing import Any, Callable, TypeVar
 
@@ -18,6 +19,7 @@ from darts.logging import get_logger, raise_if_not
 
 T = TypeVar("T")
 logger = get_logger(__name__)
+lightning_version = version("pytorch-lightning").split(".")
 
 MAX_TORCH_SEED_VALUE = (1 << 31) - 1  # to accommodate 32-bit architectures
 MAX_NUMPY_SEED_VALUE = (1 << 31) - 1

@@ -14,13 +14,21 @@ from darts.dataprocessing.transformers import BoxCox, Scaler
 from darts.logging import get_logger
 from darts.metrics import mape
 from darts.tests.conftest import tfm_kwargs
+from darts.utils.torch import lightning_version
 
 logger = get_logger(__name__)
 
 try:
     import torch
-    from pytorch_lightning.loggers.logger import DummyLogger
-    from pytorch_lightning.tuner.lr_finder import _LRFinder
+
+    pl_200_or_above = int(lightning_version[0]) >= 2
+    if pl_200_or_above:
+        from lightning.pytorch.loggers.logger import DummyLogger
+        from lightning.pytorch.tuner.lr_finder import _LRFinder
+    else:
+        from pytorch_lightning.loggers.logger import DummyLogger
+        from pytorch_lightning.tuner.lr_finder import _LRFinder
+
     from torchmetrics import (
         MeanAbsoluteError,
         MeanAbsolutePercentageError,

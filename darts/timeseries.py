@@ -989,54 +989,6 @@ class TimeSeries:
             df_grouped, verbose=verbose, desc="Create TimeSeries", total=len(df_grouped)
         )
 
-<<<<<<< HEAD
-            # check that for each group there is only one unique value per column in `static_cols`
-            if static_cols:
-                static_cols_valid = [
-                    len(group[col].unique()) == 1 for col in static_cols
-                ]
-                if not all(static_cols_valid):
-                    # encountered performance issues when evaluating the error message from below in every
-                    # iteration with `raise_if_not(all(static_cols_valid), message, logger)`
-                    invalid_cols = [
-                        static_col
-                        for static_col, is_valid in zip(static_cols, static_cols_valid)
-                        if not is_valid
-                    ]
-                    raise_if(
-                        True,
-                        f"Encountered more than one unique value in group {group} for given static columns: "
-                        f"{invalid_cols}.",
-                        logger,
-                    )
-                # add the static covariates to the group values
-                static_cov_vals += tuple(group[static_cols].values[0])
-            # store static covariate Series and group DataFrame (without static cov columns)
-            splits.append(
-                (
-                    (
-                        pd.DataFrame([static_cov_vals], columns=extract_static_cov_cols)
-                        if extract_static_cov_cols
-                        else None
-                    ),
-                    group[extract_value_cols + extract_weight_col],
-                )
-            )
-
-        # create a list with multiple TimeSeries and add static covariates
-        return [
-            cls.from_dataframe(
-                df=split,
-                value_cols=value_cols,
-                weight_cols=extract_weight_col,
-                fill_missing_dates=fill_missing_dates,
-                freq=freq,
-                fillna_value=fillna_value,
-                static_covariates=static_covs,
-            )
-            for static_covs, split in splits
-        ]
-=======
         return _parallel_apply(
             input_iterator,
             fn=cls._from_group_dataframe,
@@ -1054,7 +1006,6 @@ class TimeSeries:
                 "extract_static_cov_cols": extract_static_cov_cols,
             },
         )
->>>>>>> 500ed596 (Make `TimeSeries.from_group_dataframe` parallelized (#6))
 
     @classmethod
     def from_series(
@@ -1230,9 +1181,9 @@ class TimeSeries:
             dims=(times_name,) + DIMS[-2:],
             coords=coords,
             attrs={
-                STATIC_COV_TAG: static_covariates, 
+                STATIC_COV_TAG: static_covariates,
                 HIERARCHY_TAG: hierarchy,
-                SAMPLE_WEIGHTS_TAG: sample_weights
+                SAMPLE_WEIGHTS_TAG: sample_weights,
             },
         )
 
@@ -1379,8 +1330,8 @@ class TimeSeries:
         """
         df = pd.read_json(json_str, orient="split")
         return cls.from_dataframe(
-            df, 
-            static_covariates=static_covariates, 
+            df,
+            static_covariates=static_covariates,
             hierarchy=hierarchy,
         )
 
@@ -5424,9 +5375,11 @@ class TimeSeries:
 
             xa_ = _xarray_with_attrs(
                 xa_,
-                xa_.attrs[STATIC_COV_TAG]
-                if adapt_covs_on_component
-                else xa_.attrs[STATIC_COV_TAG],
+                (
+                    xa_.attrs[STATIC_COV_TAG]
+                    if adapt_covs_on_component
+                    else xa_.attrs[STATIC_COV_TAG]
+                ),
                 hierarchy=xa_.attrs[HIERARCHY_TAG],
                 sample_weights=(
                     xa_.attrs[SAMPLE_WEIGHTS_TAG][[key]]
@@ -5447,9 +5400,11 @@ class TimeSeries:
 
             xa_ = _xarray_with_attrs(
                 xa_,
-                xa_.attrs[STATIC_COV_TAG]
-                if adapt_covs_on_component
-                else xa_.attrs[STATIC_COV_TAG],
+                (
+                    xa_.attrs[STATIC_COV_TAG]
+                    if adapt_covs_on_component
+                    else xa_.attrs[STATIC_COV_TAG]
+                ),
                 hierarchy=xa_.attrs[HIERARCHY_TAG],
                 sample_weights=(
                     xa_.attrs[SAMPLE_WEIGHTS_TAG][[index]]
@@ -5517,9 +5472,11 @@ class TimeSeries:
 
                 xa_ = _xarray_with_attrs(
                     xa_,
-                    xa_.attrs[STATIC_COV_TAG]
-                    if adapt_covs_on_component
-                    else xa_.attrs[STATIC_COV_TAG],
+                    (
+                        xa_.attrs[STATIC_COV_TAG]
+                        if adapt_covs_on_component
+                        else xa_.attrs[STATIC_COV_TAG]
+                    ),
                     hierarchy=xa_.attrs[HIERARCHY_TAG],
                     sample_weights=(
                         xa_.attrs[SAMPLE_WEIGHTS_TAG][key]
@@ -5542,9 +5499,11 @@ class TimeSeries:
                 ]
                 xa_ = _xarray_with_attrs(
                     xa_,
-                    xa_.attrs[STATIC_COV_TAG]
-                    if adapt_covs_on_component
-                    else xa_.attrs[STATIC_COV_TAG],
+                    (
+                        xa_.attrs[STATIC_COV_TAG]
+                        if adapt_covs_on_component
+                        else xa_.attrs[STATIC_COV_TAG]
+                    ),
                     hierarchy=xa_.attrs[HIERARCHY_TAG],
                     sample_weights=(
                         xa_.attrs[SAMPLE_WEIGHTS_TAG][indexes]

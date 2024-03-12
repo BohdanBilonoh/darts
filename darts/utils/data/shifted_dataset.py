@@ -8,7 +8,7 @@ from typing import Optional, Sequence, Tuple, Union
 import numpy as np
 
 from darts import TimeSeries
-from darts.logging import raise_if_not
+from darts.logging import get_logger, raise_if_not, raise_log
 
 from .training_dataset import (
     DualCovariatesTrainingDataset,
@@ -19,6 +19,8 @@ from .training_dataset import (
     TrainingDataset,
 )
 from .utils import CovariateType
+
+logger = get_logger(__name__)
 
 
 class PastCovariatesShiftedDataset(PastCovariatesTrainingDataset):
@@ -87,9 +89,7 @@ class PastCovariatesShiftedDataset(PastCovariatesTrainingDataset):
     def __len__(self):
         return len(self.ds)
 
-    def __getitem__(
-        self, idx
-    ) -> Tuple[
+    def __getitem__(self, idx) -> Tuple[
         np.ndarray,
         Optional[np.ndarray],
         Optional[np.ndarray],
@@ -168,9 +168,7 @@ class FutureCovariatesShiftedDataset(FutureCovariatesTrainingDataset):
     def __len__(self):
         return len(self.ds)
 
-    def __getitem__(
-        self, idx
-    ) -> Tuple[
+    def __getitem__(self, idx) -> Tuple[
         np.ndarray,
         Optional[np.ndarray],
         Optional[np.ndarray],
@@ -604,9 +602,7 @@ class GenericShiftedDataset(TrainingDataset):
     def __len__(self):
         return self.ideal_nr_samples
 
-    def __getitem__(
-        self, idx
-    ) -> Tuple[
+    def __getitem__(self, idx) -> Tuple[
         np.ndarray,
         Optional[np.ndarray],
         Optional[np.ndarray],
@@ -621,12 +617,15 @@ class GenericShiftedDataset(TrainingDataset):
         # determine the actual number of possible samples in this time series
         n_samples_in_ts = len(target_vals) - self.size_of_both_chunks + 1
 
-        raise_if_not(
-            n_samples_in_ts >= 1,
-            "The dataset contains some time series that are too short to contain "
-            "`max(self.input_chunk_length, self.shift + self.output_chunk_length)` "
-            "({}-th series)".format(target_idx),
-        )
+        if n_samples_in_ts < 1:
+            raise_log(
+                ValueError(
+                    "The dataset contains some time series that are too short to contain "
+                    "`max(self.input_chunk_length, self.shift + self.output_chunk_length)` "
+                    "({}-th series)".format(target_idx)
+                ),
+                logger,
+            )
 
         # determine the index at the end of the output chunk
         # it is originally in [0, self.max_samples_per_ts), so we use a modulo to have it in [0, n_samples_in_ts)
@@ -678,27 +677,32 @@ class GenericShiftedDataset(TrainingDataset):
         # optionally, extract sample covariates
         covariate = None
         if self.covariates is not None:
-            raise_if_not(
-                covariate_end <= len(covariate_series),
-                f"The dataset contains {main_covariate_type.value} covariates "
-                f"that don't extend far enough into the future. ({idx}-th sample)",
-            )
+            if covariate_end > len(covariate_series):
+                raise_log(
+                    ValueError(
+                        f"The dataset contains {main_covariate_type.value} covariates "
+                        f"that don't extend far enough into the future. ({idx}-th sample)"
+                    ),
+                    logger,
+                )
 
             covariate = covariate_series.random_component_values(copy=False)[
                 covariate_start:covariate_end
             ]
 
-            raise_if_not(
-                len(covariate)
-                == (
-                    self.output_chunk_length
-                    if self.shift_covariates
-                    else self.input_chunk_length
-                ),
-                f"The dataset contains {main_covariate_type.value} covariates "
-                f"whose time axis doesn't allow to obtain the input (or output) chunk relative to the "
-                f"target series.",
-            )
+            if len(covariate) != (
+                self.output_chunk_length
+                if self.shift_covariates
+                else self.input_chunk_length
+            ):
+                raise_log(
+                    ValueError(
+                        f"The dataset contains {main_covariate_type.value} covariates "
+                        f"whose time axis doesn't allow to obtain the input (or output) chunk relative to the "
+                        f"target series. ({idx}-th sample)"
+                    ),
+                    logger,
+                )
 
         if self.use_static_covariates:
             static_covariate = target_series.static_covariates_values(copy=False)

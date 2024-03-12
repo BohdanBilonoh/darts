@@ -8,7 +8,7 @@ from typing import Optional, Sequence, Tuple, Union
 import numpy as np
 
 from darts import TimeSeries
-from darts.logging import get_logger, raise_if_not
+from darts.logging import get_logger, raise_if_not, raise_log
 
 from .training_dataset import PastCovariatesTrainingDataset
 from .utils import CovariateType
@@ -116,12 +116,14 @@ class HorizonBasedDataset(PastCovariatesTrainingDataset):
         target_series = self.target_series[target_idx]
         target_vals = target_series.random_component_values(copy=False)
 
-        raise_if_not(
-            len(target_vals)
-            >= (self.lookback + self.max_lh) * self.output_chunk_length,
-            "The dataset contains some input/target series that are shorter than "
-            "`(lookback + max_lh) * H` ({}-th series)".format(target_idx),
-        )
+        if len(target_vals) < (self.lookback + self.max_lh) * self.output_chunk_length:
+            raise_log(
+                ValueError(
+                    "The dataset contains some input/target series that are shorter than "
+                    "`(lookback + max_lh) * H` ({}-th series)".format(target_idx)
+                ),
+                logger,
+            )
 
         # determine the index lh_idx of the forecasting point (the last point of the input series, before the target)
         # lh_idx should be in [0, self.nr_samples_per_ts)
@@ -169,21 +171,27 @@ class HorizonBasedDataset(PastCovariatesTrainingDataset):
         # optionally, extract sample covariates
         covariate = None
         if self.covariates is not None:
-            raise_if_not(
-                cov_end <= len(covariate_series),
-                f"The dataset contains 'past' covariates that don't extend far enough into the future. "
-                f"({idx}-th sample)",
-            )
+            if cov_end > len(covariate_series):
+                raise_log(
+                    ValueError(
+                        "The dataset contains 'past' covariates that don't extend far enough into the future. "
+                        f"({idx}-th sample)"
+                    ),
+                    logger,
+                )
 
             covariate = covariate_series.random_component_values(copy=False)[
                 cov_start:cov_end
             ]
 
-            raise_if_not(
-                len(covariate) == len(past_target),
-                "The dataset contains 'past' covariates whose time axis doesn't allow to obtain the "
-                "input (or output) chunk relative to the target series.",
-            )
+            if len(covariate) != len(past_target):
+                raise_log(
+                    ValueError(
+                        "The dataset contains 'past' covariates whose time axis doesn't allow to obtain the "
+                        "input (or output) chunk relative to the target series."
+                    ),
+                    logger,
+                )
 
         if self.use_static_covariates:
             static_covariate = target_series.static_covariates_values(copy=False)

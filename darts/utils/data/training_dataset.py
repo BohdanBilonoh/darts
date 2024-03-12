@@ -10,7 +10,7 @@ import numpy as np
 from torch.utils.data import Dataset
 
 from darts import TimeSeries
-from darts.logging import get_logger, raise_if_not
+from darts.logging import get_logger, raise_log
 
 from .utils import CovariateType
 
@@ -151,12 +151,17 @@ class TrainingDataset(ABC, Dataset):
                 start_time = target_series.time_index[start]
                 end_time = target_series.time_index[end - 1]
 
-                raise_if_not(
-                    start_time in covariate_series.time_index
-                    and end_time in covariate_series.time_index,
-                    f"Missing covariates; could not find {covariate_type.value} covariates in index value range: "
-                    f"{start_time} - {end_time}.",
-                )
+                if (
+                    start_time not in covariate_series.time_index
+                    or end_time not in covariate_series.time_index
+                ):
+                    raise_log(
+                        ValueError(
+                            f"Missing covariates; could not find {covariate_type.value} "
+                            f"covariates in index value range: {start_time} - {end_time}."
+                        ),
+                        logger,
+                    )
 
                 # extract the index position (index) from index value
                 covariate_start = covariate_series.time_index.get_loc(start_time)

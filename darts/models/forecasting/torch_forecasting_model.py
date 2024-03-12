@@ -668,6 +668,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         verbose: Optional[bool] = None,
         epochs: int = 0,
         max_samples_per_ts: Optional[int] = None,
+        val_max_samples_per_ts: Optional[int] = None,
         num_loader_workers: int = 0,
         prefetch_factor: Optional[int] = None,
         persistent_workers: bool = False,
@@ -750,6 +751,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
             verbose=verbose,
             epochs=epochs,
             max_samples_per_ts=max_samples_per_ts,
+            val_max_samples_per_ts=val_max_samples_per_ts,
             num_loader_workers=num_loader_workers,
             prefetch_factor=prefetch_factor,
             persistent_workers=persistent_workers,
@@ -774,6 +776,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         verbose: Optional[bool] = None,
         epochs: int = 0,
         max_samples_per_ts: Optional[int] = None,
+        val_max_samples_per_ts: Optional[int] = None,
         num_loader_workers: int = 0,
         prefetch_factor: Optional[int] = None,
         persistent_workers: bool = False,
@@ -884,7 +887,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
                 target=val_series,
                 past_covariates=val_past_covariates,
                 future_covariates=val_future_covariates,
-                max_samples_per_ts=max_samples_per_ts,
+                max_samples_per_ts=val_max_samples_per_ts,
             )
         else:
             val_dataset = None
@@ -1147,6 +1150,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         verbose: Optional[bool] = None,
         epochs: int = 0,
         max_samples_per_ts: Optional[int] = None,
+        val_max_samples_per_ts: Optional[int] = None,
         num_loader_workers: int = 0,
         prefetch_factor: Optional[int] = None,
         persistent_workers: bool = False,
@@ -1257,6 +1261,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
             verbose=verbose,
             epochs=epochs,
             max_samples_per_ts=max_samples_per_ts,
+            val_max_samples_per_ts=val_max_samples_per_ts,
             num_loader_workers=num_loader_workers,
             prefetch_factor=prefetch_factor,
             persistent_workers=persistent_workers,

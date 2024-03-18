@@ -51,7 +51,7 @@ from pandas.tseries.frequencies import to_offset
 from scipy.stats import kurtosis, skew
 
 from .logging import get_logger, raise_if, raise_if_not, raise_log
-from .utils.parallel import _build_tqdm_iterator, _parallel_apply
+from .utils.parallel import _parallel_apply
 
 try:
     from typing import Literal
@@ -985,12 +985,9 @@ class TimeSeries:
         df = df.sort_index()
 
         df_grouped = df.groupby(group_cols[0] if len(group_cols) == 1 else group_cols)
-        input_iterator = _build_tqdm_iterator(
-            df_grouped, verbose=verbose, desc="Create TimeSeries", total=len(df_grouped)
-        )
 
         return _parallel_apply(
-            input_iterator,
+            df_grouped,
             fn=cls._from_group_dataframe,
             n_jobs=n_jobs,
             fn_args=dict(),

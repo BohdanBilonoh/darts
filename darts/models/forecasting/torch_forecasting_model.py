@@ -1104,7 +1104,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
 
         if self._requires_training:
             if self.pl_compile_model and pl_200_or_above:
-                model = torch.compile(model)
+                model = torch.compile(model, mode="reduce-overhead")
 
             trainer.fit(
                 model,

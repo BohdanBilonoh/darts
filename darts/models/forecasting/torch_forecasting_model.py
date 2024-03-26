@@ -167,6 +167,7 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         add_encoders: Optional[dict] = None,
         random_state: Optional[int] = None,
         pl_trainer_kwargs: Optional[dict] = None,
+        pl_compile_model: bool = False,
         show_warnings: bool = False,
     ):
         """Pytorch Lightning (PL)-based Forecasting Model.
@@ -286,6 +287,8 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
 
             Note that you can also use a custom PyTorch Lightning Trainer for training and prediction with optional
             parameter ``trainer`` in :func:`fit()` and :func:`predict()`.
+        pl_compile_model
+            Use PyTorch compile mode. Check PyTorch documentation for more information.
         show_warnings
             whether to show warnings raised from PyTorch Lightning. Useful to detect potential issues of
             your forecasting use case. Default: ``False``.
@@ -376,6 +379,8 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
                 "callbacks", []
             )
             self.trainer_params = dict(self.trainer_params, **pl_trainer_kwargs_copy)
+
+        self.pl_compile_model = pl_compile_model
 
         # pytorch lightning trainer will be created at training time
         # keep a reference of the trainer, to avoid weak reference errors
@@ -1098,6 +1103,9 @@ class TorchForecastingModel(GlobalForecastingModel, ABC):
         self.load_ckpt_path = None
 
         if self._requires_training:
+            if self.pl_compile_model and pl_200_or_above:
+                model = torch.compile(model)
+
             trainer.fit(
                 model,
                 train_dataloaders=train_loader,

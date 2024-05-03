@@ -30,6 +30,21 @@ class TestTiDEModel:
 
         assert model.input_chunk_length == 1
 
+    def test_compiled_creation(self):
+        model = TiDEModel(
+            input_chunk_length=1,
+            output_chunk_length=1,
+            likelihood=GaussianLikelihood(),
+            compile_model=True,
+            compile_model_kwargs={
+                "backend": (
+                    "aot_eager" if torch.backends.mps.is_available() else "inductor"
+                ),
+            },
+        )
+
+        assert model.input_chunk_length == 1
+
     def test_fit(self):
         large_ts = tg.constant_timeseries(length=100, value=1000)
         small_ts = tg.constant_timeseries(length=100, value=10)

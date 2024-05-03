@@ -3,7 +3,7 @@ Time-series Dense Encoder (TiDE)
 ------
 """
 
-from typing import Optional, Tuple
+from typing import Any, Mapping, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -65,13 +65,16 @@ class _ResidualBlock(nn.Module):
         return x
 
 
-class _TideModule(PLMixedCovariatesModule):
+class _TiDEModel(nn.Module):
     def __init__(
         self,
+        input_chunk_length: int,
+        output_chunk_length: int,
         input_dim: int,
         output_dim: int,
         future_cov_dim: int,
         static_cov_dim: int,
+        past_cov_dim: int,
         nr_params: int,
         num_encoder_layers: int,
         num_decoder_layers: int,
@@ -82,12 +85,22 @@ class _TideModule(PLMixedCovariatesModule):
         temporal_width_future: int,
         use_layer_norm: bool,
         dropout: float,
-        **kwargs,
     ):
         """Pytorch module implementing the TiDE architecture.
 
         Parameters
         ----------
+        input_chunk_length
+            Number of time steps in the past to take as a model input (per chunk). Applies to the target
+            series, and past and/or future covariates (if the model supports it).
+        output_chunk_length
+            Number of time steps predicted at once (per chunk) by the internal model. Also, the number of future values
+            from future covariates to use as a model input (if the model supports future covariates). It is not the same
+            as forecast horizon `n` used in `predict()`, which is the desired number of prediction points generated
+            using either a one-shot- or autoregressive forecast. Setting `n <= output_chunk_length` prevents
+            auto-regression. This is useful when the covariates don't extend far enough into the future, or to prohibit
+            the model from using future values of past and / or future covariates for prediction (depending on the
+            model's covariate support).
         input_dim
             The number of input components (target + optional past covariates + optional future covariates).
         output_dim
@@ -116,39 +129,25 @@ class _TideModule(PLMixedCovariatesModule):
             Whether to use layer normalization in the Residual Blocks.
         dropout
             Dropout probability
-        **kwargs
-            all parameters required for :class:`darts.models.forecasting.pl_forecasting_module.PLForecastingModule`
-            base class.
-
-        Inputs
-        ------
-        x
-            Tuple of Tensors `(x_past, x_future, x_static)` where `x_past` is the input/past chunk and
-            `x_future`is the output/future chunk. Input dimensions are `(batch_size, time_steps, components)`
-        Outputs
-        -------
-        y
-            Tensor of shape `(batch_size, output_chunk_length, output_dim, nr_params)`
-
         """
-
-        super().__init__(**kwargs)
-
+        super().__init__()
+        self.input_chunk_length = input_chunk_length
+        self.output_chunk_length = output_chunk_length
         self.input_dim = input_dim
         self.output_dim = output_dim
-        self.past_cov_dim = input_dim - output_dim - future_cov_dim
         self.future_cov_dim = future_cov_dim
         self.static_cov_dim = static_cov_dim
+        self.past_cov_dim = past_cov_dim
         self.nr_params = nr_params
         self.num_encoder_layers = num_encoder_layers
         self.num_decoder_layers = num_decoder_layers
         self.decoder_output_dim = decoder_output_dim
         self.hidden_size = hidden_size
         self.temporal_decoder_hidden = temporal_decoder_hidden
-        self.use_layer_norm = use_layer_norm
-        self.dropout = dropout
         self.temporal_width_past = temporal_width_past
         self.temporal_width_future = temporal_width_future
+        self.use_layer_norm = use_layer_norm
+        self.dropout = dropout
 
         # past covariates handling: either feature projection, raw features, or no features
         self.past_cov_projection = None
@@ -258,27 +257,26 @@ class _TideModule(PLMixedCovariatesModule):
             self.input_chunk_length, self.output_chunk_length * self.nr_params
         )
 
-    @io_processor
     def forward(
-        self, x_in: Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]
+        self,
+        x: torch.Tensor,
+        x_future_covariates: Optional[torch.Tensor],
+        x_static_covariates: Optional[torch.Tensor],
     ) -> torch.Tensor:
         """TiDE model forward pass.
         Parameters
         ----------
-        x_in
-            comes as tuple `(x_past, x_future, x_static)` where `x_past` is the input/past chunk and `x_future`
-            is the output/future chunk. Input dimensions are `(batch_size, time_steps, components)`
+        x
+            The input/past chunk Tensor of shape `(batch_size, input_chunk_length, input_dim)`.
+        x_future_covariates
+            The future covariates Tensor of shape `(batch_size, input_chunk_length, future_cov_dim)`.
+        x_static_covariates
+            The static covariates Tensor of shape `(batch_size, static_cov_dim)`.
         Returns
         -------
         torch.Tensor
             The output Tensor of shape `(batch_size, output_chunk_length, output_dim, nr_params)`
         """
-
-        # x has shape (batch_size, input_chunk_length, input_dim)
-        # x_future_covariates has shape (batch_size, input_chunk_length, future_cov_dim)
-        # x_static_covariates has shape (batch_size, static_cov_dim)
-        x, x_future_covariates, x_static_covariates = x_in
-
         x_lookback = x[:, :, : self.output_dim]
 
         # future covariates: feature projection or raw features
@@ -364,6 +362,141 @@ class _TideModule(PLMixedCovariatesModule):
         return y
 
 
+class _TideModule(PLMixedCovariatesModule):
+    def __init__(
+        self,
+        input_dim: int,
+        output_dim: int,
+        future_cov_dim: int,
+        static_cov_dim: int,
+        nr_params: int,
+        num_encoder_layers: int,
+        num_decoder_layers: int,
+        decoder_output_dim: int,
+        hidden_size: int,
+        temporal_decoder_hidden: int,
+        temporal_width_past: int,
+        temporal_width_future: int,
+        use_layer_norm: bool,
+        dropout: float,
+        compile_model: bool = False,
+        compile_model_kwargs: Optional[Mapping[str, Any]] = None,
+        **kwargs,
+    ):
+        """Pytorch module implementing the TiDE architecture.
+
+        Parameters
+        ----------
+        input_dim
+            The number of input components (target + optional past covariates + optional future covariates).
+        output_dim
+            Number of output components in the target.
+        future_cov_dim
+            Number of future covariates.
+        static_cov_dim
+            Number of static covariates.
+        nr_params
+            The number of parameters of the likelihood (or 1 if no likelihood is used).
+        num_encoder_layers
+            Number of stacked Residual Blocks in the encoder.
+        num_decoder_layers
+            Number of stacked Residual Blocks in the decoder.
+        decoder_output_dim
+            The number of output components of the decoder.
+        hidden_size
+            The width of the hidden layers in the encoder/decoder Residual Blocks.
+        temporal_decoder_hidden
+            The width of the hidden layers in the temporal decoder.
+        temporal_width_past
+            The width of the past covariate embedding space.
+        temporal_width_future
+            The width of the future covariate embedding space.
+        use_layer_norm
+            Whether to use layer normalization in the Residual Blocks.
+        dropout
+            Dropout probability
+        compile_model
+            Whether to compile the model using torch.compile.
+        compile_model_kwargs
+            Optional arguments for torch.compile.
+        **kwargs
+            all parameters required for :class:`darts.models.forecasting.pl_forecasting_module.PLForecastingModule`
+            base class.
+
+        Inputs
+        ------
+        x
+            Tuple of Tensors `(x_past, x_future, x_static)` where `x_past` is the input/past chunk and
+            `x_future`is the output/future chunk. Input dimensions are `(batch_size, time_steps, components)`
+        Outputs
+        -------
+        y
+            Tensor of shape `(batch_size, output_chunk_length, output_dim, nr_params)`
+
+        """
+
+        super().__init__(**kwargs)
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.past_cov_dim = input_dim - output_dim - future_cov_dim
+        self.future_cov_dim = future_cov_dim
+        self.static_cov_dim = static_cov_dim
+        self.nr_params = nr_params
+        self.num_encoder_layers = num_encoder_layers
+        self.num_decoder_layers = num_decoder_layers
+        self.decoder_output_dim = decoder_output_dim
+        self.hidden_size = hidden_size
+        self.temporal_decoder_hidden = temporal_decoder_hidden
+        self.use_layer_norm = use_layer_norm
+        self.dropout = dropout
+        self.temporal_width_past = temporal_width_past
+        self.temporal_width_future = temporal_width_future
+        self._model = _TiDEModel(
+            input_chunk_length=self.input_chunk_length,
+            output_chunk_length=self.output_chunk_length,
+            input_dim=input_dim,
+            output_dim=output_dim,
+            future_cov_dim=future_cov_dim,
+            static_cov_dim=static_cov_dim,
+            past_cov_dim=self.past_cov_dim,
+            nr_params=nr_params,
+            num_encoder_layers=num_encoder_layers,
+            num_decoder_layers=num_decoder_layers,
+            decoder_output_dim=decoder_output_dim,
+            hidden_size=hidden_size,
+            temporal_decoder_hidden=temporal_decoder_hidden,
+            temporal_width_past=temporal_width_past,
+            temporal_width_future=temporal_width_future,
+            use_layer_norm=use_layer_norm,
+            dropout=dropout,
+        )
+
+        if compile_model:
+            self._model = torch.compile(self._model, **(compile_model_kwargs or {}))
+
+    @io_processor
+    def forward(
+        self, x_in: Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]
+    ) -> torch.Tensor:
+        """TiDE model forward pass.
+        Parameters
+        ----------
+        x_in
+            comes as tuple `(x_past, x_future, x_static)` where `x_past` is the input/past chunk and `x_future`
+            is the output/future chunk. Input dimensions are `(batch_size, time_steps, components)`
+        Returns
+        -------
+        torch.Tensor
+            The output Tensor of shape `(batch_size, output_chunk_length, output_dim, nr_params)`
+        """
+
+        return self._model(
+            x=x_in[0],
+            x_future_covariates=x_in[1],
+            x_static_covariates=x_in[2],
+        )
+
+
 class TiDEModel(MixedCovariatesTorchModel):
     def __init__(
         self,
@@ -380,6 +513,8 @@ class TiDEModel(MixedCovariatesTorchModel):
         use_layer_norm: bool = False,
         dropout: float = 0.1,
         use_static_covariates: bool = True,
+        compile_model: bool = False,
+        compile_model_kwargs: Optional[Mapping[str, Any]] = None,
         **kwargs,
     ):
         """An implementation of the TiDE model, as presented in [1]_.
@@ -438,6 +573,10 @@ class TiDEModel(MixedCovariatesTorchModel):
             The dropout probability to be used in fully connected layers. This is compatible with Monte Carlo dropout
             at inference time for model uncertainty estimation (enabled with ``mc_dropout=True`` at
             prediction time).
+        compile_model
+            Whether to compile the model using `torch.compile`. Default: ``False``.
+        compile_model_kwargs
+            Optionally, some keyword arguments for the `torch.compile` function. Default: ``None``.
         **kwargs
             Optional arguments to initialize the pytorch_lightning.Module, pytorch_lightning.Trainer, and
             Darts' :class:`TorchForecastingModel`.
@@ -633,6 +772,8 @@ class TiDEModel(MixedCovariatesTorchModel):
 
         self.use_layer_norm = use_layer_norm
         self.dropout = dropout
+        self.compile_model = compile_model
+        self.compile_model_kwargs = compile_model_kwargs
 
     def _create_model(
         self, train_sample: MixedCovariatesTrainTensorType
@@ -697,6 +838,8 @@ class TiDEModel(MixedCovariatesTorchModel):
             temporal_decoder_hidden=self.temporal_decoder_hidden,
             use_layer_norm=self.use_layer_norm,
             dropout=self.dropout,
+            compile_model=self.compile_model,
+            compile_model_kwargs=self.compile_model_kwargs,
             **self.pl_module_params,
         )
 

@@ -172,6 +172,16 @@ class FittableDataTransformer(BaseDataTransformer):
         self._fitted_params = None  # stores the fitted parameters/objects
         self._global_fit = global_fit
 
+    @property
+    def fitted(self) -> bool:
+        """
+        Returns
+        -------
+        bool
+            `True` if the transformer is fitted, `False` otherwise
+        """
+        return self._fitted_params is not None
+
     @staticmethod
     @abstractmethod
     def ts_fit(
